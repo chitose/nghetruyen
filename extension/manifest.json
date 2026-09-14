@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Web Novel Reader (VN TTS)",
+  "version": "0.1.0",
+  "description": "Reads Vietnamese web novel chapters aloud via a local TTS sidecar.",
+  "permissions": ["offscreen", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["defaults.js", "chunker.js", "content.js"],
+      "css": ["player-bar.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

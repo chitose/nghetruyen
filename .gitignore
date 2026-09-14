@@ -1,0 +1,4 @@
+sidecar/venv/
+sidecar/__pycache__/
+**/__pycache__/
+*.pyc
