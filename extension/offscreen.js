@@ -40,7 +40,10 @@ function prefetch() {
 }
 
 function notify(msg) {
-  chrome.runtime.sendMessage({ target: "content-bar", ...msg });
+  // No listener exists between service-worker restarts for a brief instant;
+  // an uncaught rejection here would otherwise surface as "Could not
+  // establish connection. Receiving end does not exist." in the console.
+  chrome.runtime.sendMessage({ target: "content-bar", ...msg }).catch(() => {});
 }
 
 async function playCurrent() {

@@ -162,12 +162,21 @@ function injectPlayerBar(defaultRate, sidecarUrl, currentSpeaker, autoNextEnable
     }
   });
 
-  bar.querySelector("#vn-tts-prev").addEventListener("click", () => {
-    chrome.runtime.sendMessage({ target: "background", type: "SKIP", direction: -1 });
-  });
-  bar.querySelector("#vn-tts-next").addEventListener("click", () => {
-    chrome.runtime.sendMessage({ target: "background", type: "SKIP", direction: 1 });
-  });
+  // Debounced: offscreen.js's skip() is async (awaits the cache before it can
+  // set audio.src), so rapid repeat clicks can overlap and land out of order
+  // -- e.g. two chunks resolving in reverse order, leaving the wrong one
+  // playing. One skip per SKIP_DEBOUNCE_MS is plenty for a button meant to
+  // move by one Paragraph at a time.
+  const SKIP_DEBOUNCE_MS = 400;
+  let lastSkipAt = 0;
+  function sendSkip(direction) {
+    const now = Date.now();
+    if (now - lastSkipAt < SKIP_DEBOUNCE_MS) return;
+    lastSkipAt = now;
+    chrome.runtime.sendMessage({ target: "background", type: "SKIP", direction });
+  }
+  bar.querySelector("#vn-tts-prev").addEventListener("click", () => sendSkip(-1));
+  bar.querySelector("#vn-tts-next").addEventListener("click", () => sendSkip(1));
 
   textToggleBtn.addEventListener("click", () => {
     showText = !showText;
