@@ -7,7 +7,7 @@
 // source Paragraph so SKIP can jump by Paragraph, the coarser unit a reader
 // actually navigates by.
 
-const PREFETCH_AHEAD = 3;
+const PREFETCH_AHEAD = 6;
 
 let chunks = [];
 let paragraphs = [];
@@ -15,6 +15,7 @@ let index = 0;
 let sidecarUrl = "";
 let speaker = "";
 let rate = 1.0;
+let chapterSessionId = null; // identifies which chapter is currently loaded/warmed
 const cache = new Map(); // index -> Promise<string> (object URL)
 
 const audio = new Audio();
@@ -83,13 +84,32 @@ audio.addEventListener("ended", () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.target !== "offscreen") return;
 
-  if (msg.type === "PLAY_CHAPTER") {
+  if (msg.type === "PREWARM_CHAPTER") {
+    // Fired at page load, before Play is pressed -- fills the cache ahead of
+    // time so pressing Play (which usually comes a few seconds later, while
+    // the reader's still looking at the page) often hits a warm cache instead
+    // of paying the first chunk's synthesis time right when it matters.
+    if (chapterSessionId === msg.chapterSessionId) return; // already warm
     chunks = msg.chunks;
     paragraphs = msg.paragraphs;
     index = 0;
     sidecarUrl = msg.sidecarUrl;
     speaker = msg.speaker;
+    chapterSessionId = msg.chapterSessionId;
     cache.clear();
+    prefetch(); // fills the cache only -- no audio element touched
+  } else if (msg.type === "PLAY_CHAPTER") {
+    if (chapterSessionId !== msg.chapterSessionId) {
+      // Wasn't prewarmed (or the prewarm message hasn't landed yet) -- set up
+      // fresh, same as before this existed.
+      chunks = msg.chunks;
+      paragraphs = msg.paragraphs;
+      index = 0;
+      sidecarUrl = msg.sidecarUrl;
+      speaker = msg.speaker;
+      chapterSessionId = msg.chapterSessionId;
+      cache.clear();
+    }
     playCurrent();
   } else if (msg.type === "TOGGLE_PLAY") {
     if (audio.paused) {

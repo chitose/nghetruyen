@@ -115,6 +115,7 @@ let showText = false; // opt-in, resets each page load -- see Q6 in the design l
 let autoNext = true; // persisted; true preserves the original auto-advance behavior
 let lastChunkText = "";
 let lastParagraphText = "";
+let chapterSessionId = null;
 
 function injectPlayerBar(defaultRate, sidecarUrl, currentSpeaker, autoNextEnabled) {
   textPanel = document.createElement("div");
@@ -203,15 +204,15 @@ function startChapter() {
     statusEl.textContent = "Couldn't find chapter text on this page.";
     return;
   }
-  const chunks = buildParagraphChunks(pendingChapter.paragraphs);
   started = true;
   playBtn.textContent = "⏸";
   statusEl.textContent = `1 / ${pendingChapter.paragraphs.length}`;
   chrome.runtime.sendMessage({
     target: "background",
     type: "PLAY_CHAPTER",
-    chunks,
+    chunks: pendingChapter.chunks, // same array the prewarm already sent -- reuses its warm cache
     paragraphs: pendingChapter.paragraphs,
+    chapterSessionId,
   });
   window._vnTtsNextUrl = pendingChapter.nextUrl;
 }
@@ -277,8 +278,27 @@ chrome.runtime.onMessage.addListener((msg) => {
   pendingChapter = adapter ? extractWithAdapter(adapter) : genericExtract();
   if (!pendingChapter || !pendingChapter.paragraphs.length) return; // nothing readable here -- stay invisible
 
+  // Computed once and reused by both the prewarm and the real PLAY_CHAPTER
+  // message below, so pressing Play doesn't re-split what's already known.
+  pendingChapter.chunks = buildParagraphChunks(pendingChapter.paragraphs);
+  chapterSessionId = `${location.href}#${Date.now()}`;
+
   autoNext = storedAutoNext;
   injectPlayerBar(defaultRate, sidecarUrl, speaker, autoNext);
+
+  // Start synthesizing the first few Chunks now, before Play is pressed --
+  // the reader usually spends a few seconds looking at the page first, which
+  // is otherwise wasted time the Sidecar could be filling the cache in.
+  // Cost: this fires for every readable page you land on, not just ones you
+  // actually listen to -- wasted synthesis on pages you never press Play on,
+  // but it only costs local CPU time, not quota or money.
+  chrome.runtime.sendMessage({
+    target: "background",
+    type: "PREWARM_CHAPTER",
+    chunks: pendingChapter.chunks,
+    paragraphs: pendingChapter.paragraphs,
+    chapterSessionId,
+  });
 
   chrome.storage.session.get("vnTtsAutoContinue", ({ vnTtsAutoContinue }) => {
     if (vnTtsAutoContinue) {

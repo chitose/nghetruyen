@@ -27,7 +27,7 @@ async function getSidecarConfig() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target === "background") {
-    if (msg.type === "PLAY_CHAPTER") {
+    if (msg.type === "PLAY_CHAPTER" || msg.type === "PREWARM_CHAPTER") {
       readingTabId = sender.tab.id;
       Promise.all([ensureOffscreenDocument(), getSidecarConfig()]).then(([, config]) => {
         chrome.runtime.sendMessage({ ...msg, target: "offscreen", ...config });

@@ -1,0 +1,12 @@
+services:
+  sidecar:
+    build: .
+    ports:
+      - "8934:8934"
+    volumes:
+      # persists the downloaded model across container rebuilds -- otherwise
+      # every `docker compose up --build` re-downloads it from Hugging Face
+      - vieneu-cache:/root/.cache/huggingface
+
+volumes:
+  vieneu-cache:
