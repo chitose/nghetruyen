@@ -27,21 +27,26 @@ async function getReadingTab() {
 // in-flight guard makes the second caller await the first's creation instead
 // of racing it.
 let creatingOffscreen = null;
+// Resolves true when it had to create a fresh document -- Chrome closes an
+// AUDIO_PLAYBACK offscreen document on its own once playback has been paused
+// for a while, silently wiping its chunks/index/cache. Callers use this to
+// notice that loss and recover instead of talking to an empty document.
 async function ensureOffscreenDocument() {
   if (creatingOffscreen) return creatingOffscreen;
   creatingOffscreen = (async () => {
     const existing = await chrome.runtime.getContexts({
       contextTypes: ["OFFSCREEN_DOCUMENT"],
     });
-    if (existing.length > 0) return;
+    if (existing.length > 0) return false;
     await chrome.offscreen.createDocument({
       url: "offscreen.html",
       reasons: ["AUDIO_PLAYBACK"],
       justification: "Plays synthesized chapter audio across chapter navigations.",
     });
+    return true;
   })();
   try {
-    await creatingOffscreen;
+    return await creatingOffscreen;
   } finally {
     creatingOffscreen = null;
   }
@@ -66,12 +71,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     }
     if (msg.type === "TOGGLE_PLAY" || msg.type === "SET_RATE" || msg.type === "SET_SPEAKER" || msg.type === "SKIP") {
       // ensureOffscreenDocument() first: if the doc was ever lost (e.g. an
-      // extension reload) a bare sendMessage would reject with "Could not
-      // establish connection. Receiving end does not exist." and silently do
-      // nothing. Recreating it here can't restore mid-chapter playback state
-      // (chunks/index/cache all lived in that document) -- ponytail: known
-      // ceiling; only PLAY_CHAPTER can fully recover from this.
-      ensureOffscreenDocument().then(() => {
+      // extension reload, or Chrome closing it after a paused chapter sits
+      // idle) a bare sendMessage would reject with "Could not establish
+      // connection. Receiving end does not exist." and silently do nothing.
+      // A freshly (re)created document has no chunks/index/cache -- this
+      // message would just no-op against it -- so ask the reading tab to
+      // restart the chapter instead, which does carry full state.
+      ensureOffscreenDocument().then((created) => {
+        if (created) {
+          getReadingTab().then((tabId) => {
+            if (tabId != null) chrome.tabs.sendMessage(tabId, { target: "content-bar", type: "RESTART_CHAPTER" }).catch(() => {});
+          });
+          return;
+        }
         chrome.runtime.sendMessage({ ...msg, target: "offscreen" }).catch(() => {});
       });
       return;

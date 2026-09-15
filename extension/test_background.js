@@ -56,6 +56,7 @@ function loadBackground(storage) {
   return {
     sentToTabs,
     offscreenSent,
+    state,
     dispatch: (msg, sender = {}) => chrome._listener(msg, sender, () => {}),
   };
 }
@@ -103,8 +104,34 @@ async function testReadingTabIdSurvivesRestart() {
   assert.strictEqual(instanceB.sentToTabs[0].tabId, 42);
 }
 
+async function testToggleAfterOffscreenLostAsksForRestart() {
+  const bg = loadBackground({ session: {} });
+  bg.dispatch({ target: "background", type: "PLAY_CHAPTER", chapterSessionId: "s1", chunks: [], paragraphs: [] }, { tab: { id: 7 } });
+  await flush();
+
+  // Chrome closed the offscreen document on its own (paused chapter left
+  // idle) -- simulate that by wiping the mock's "document exists" flag, same
+  // as loadBackground's initial state, then pressing the play button.
+  bg.state.offscreenCreated = false;
+  bg.dispatch({ target: "background", type: "TOGGLE_PLAY" }, {});
+  await flush();
+  await flush();
+
+  assert.strictEqual(
+    bg.offscreenSent.some((m) => m.type === "TOGGLE_PLAY"),
+    false,
+    "TOGGLE_PLAY should not be forwarded to a freshly (re)created, stateless offscreen document"
+  );
+  assert.deepStrictEqual(
+    bg.sentToTabs.map((s) => ({ tabId: s.tabId, type: s.msg.type })).filter((s) => s.type === "RESTART_CHAPTER"),
+    [{ tabId: 7, type: "RESTART_CHAPTER" }],
+    "losing the offscreen document should ask the reading tab to restart the chapter instead of silently doing nothing"
+  );
+}
+
 (async () => {
   await testOffscreenCreationRace();
   await testReadingTabIdSurvivesRestart();
+  await testToggleAfterOffscreenLostAsksForRestart();
   console.log("background: all checks passed");
 })();

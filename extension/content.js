@@ -234,7 +234,13 @@ function startChapter() {
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "CHUNK_INDEX") {
+  if (msg.type === "RESTART_CHAPTER") {
+    // The offscreen document background.js was about to talk to had been
+    // closed (Chrome reclaims it once a chapter's sat paused for a while) and
+    // its playback position with it -- restarting is a full recovery, just
+    // from the top of the chapter instead of where it was paused.
+    startChapter();
+  } else if (msg.type === "CHUNK_INDEX") {
     statusEl.onclick = null;
     statusEl.style.cursor = "";
     lastChunkText = `${msg.paragraphIndex + 1} / ${msg.totalParagraphs}`;
