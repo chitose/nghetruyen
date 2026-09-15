@@ -41,7 +41,7 @@ def load_model():
     global _tts
     from vieneu import Vieneu
 
-    _tts = Vieneu()
+    _tts = Vieneu(mode="v3nano")
 
 
 class SynthesizeRequest(BaseModel):
