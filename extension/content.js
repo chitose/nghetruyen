@@ -7,12 +7,13 @@
 // current hostname, extraction falls back to genericExtract() below -- see
 // ADR-0006 for why, and its known ceiling.
 
-function resolveNextUrl(adapter) {
-  if (adapter.nextMode === "text") {
-    const links = [...document.querySelectorAll("a")];
-    const next = links.find((a) => a.textContent.trim() === adapter.nextValue);
-    return next ? next.href : null;
-  }
+// Returns { el } to click, or { url } to navigate to, or null if there's no
+// next chapter. Re-run at click time (not cached from page load) so a click
+// always hits the live DOM -- the element may not have a real href (JS-only
+// "next" buttons), so triggering it via .click() lets the site's own handler
+// run instead of us guessing a URL.
+function findNextTarget(adapter) {
+  if (adapter.nextMode === "generic") return findGenericNextTarget();
   if (adapter.nextMode === "increment-url") {
     // ponytail: some SPA sites (dichtienghoa.net) have no real next-chapter
     // link at all -- the button is JS-only with no href. The URL's trailing
@@ -20,12 +21,16 @@ function resolveNextUrl(adapter) {
     // against real consecutive chapters when the Adapter was written, but a
     // gap or reorder in the site's ids would silently skip a chapter. There's
     // also no "end of novel" signal in this mode -- see docs/adapters.md.
-    return location.href.replace(/(\d+)(?!.*\d)/, (m) => String(Number(m) + 1));
+    return { url: location.href.replace(/(\d+)(?!.*\d)/, (m) => String(Number(m) + 1)) };
   }
-  const el = document.querySelector(adapter.nextValue);
-  if (!el) return null;
-  const a = el.tagName === "A" ? el : el.querySelector("a");
-  return a ? a.href : null;
+  if (adapter.nextMode === "text") {
+    const links = [...document.querySelectorAll("a")];
+    const el = links.find((a) => a.textContent.trim() === adapter.nextValue);
+    return el ? { el } : null;
+  }
+  const match = document.querySelector(adapter.nextValue);
+  if (!match) return null;
+  return { el: match.tagName === "A" ? match : match.querySelector("a") || match };
 }
 
 // `innerText` (not textContent) inserts a line break at every block-level
@@ -56,7 +61,7 @@ function extractWithAdapter(adapter) {
   const paragraphs = paragraphsFromInnerText(clone.innerText || "");
   clone.remove();
 
-  return { paragraphs, nextUrl: resolveNextUrl(adapter) };
+  return { paragraphs, nextAdapter: adapter };
 }
 
 // --- Generic fallback, for hosts with no configured Adapter ---
@@ -71,13 +76,13 @@ function scoreElement(el) {
   return text.length - linkText * 2; // penalize link-dense blocks (nav, sidebars)
 }
 
-function findGenericNextUrl() {
+function findGenericNextTarget() {
   const relNext = document.querySelector('a[rel="next"]');
-  if (relNext) return relNext.href;
+  if (relNext) return { el: relNext };
   const links = [...document.querySelectorAll("a")];
   for (const kw of NEXT_LINK_KEYWORDS) {
     const match = links.find((a) => a.textContent.trim().toLowerCase() === kw);
-    if (match) return match.href;
+    if (match) return { el: match };
   }
   return null;
 }
@@ -89,6 +94,7 @@ function findGenericNextUrl() {
 // khotruyenchu.fun). A frequently-read site that misfires deserves a real
 // Adapter, not a smarter heuristic here.
 function genericExtract() {
+  if (!isProbablyReaderable(document)) return null; // page doesn't look like an article/reader page at all
   const candidates = document.querySelectorAll("article, main, div, section");
   let best = null;
   let bestScore = GENERIC_MIN_SCORE;
@@ -101,7 +107,7 @@ function genericExtract() {
   }
   if (!best) return null;
   const paragraphs = paragraphsFromInnerText(best.innerText || "");
-  return { paragraphs, nextUrl: findGenericNextUrl() };
+  return { paragraphs, nextAdapter: { nextMode: "generic" } };
 }
 
 // splitIntoChunks comes from chunker.js, loaded first (see manifest.json).
@@ -189,14 +195,14 @@ function injectPlayerBar(defaultRate, sidecarUrl, currentSpeaker, autoNextEnable
   // Best-effort: replace the single placeholder option with the sidecar's
   // real list. If the sidecar isn't running yet, the picker still shows the
   // stored speaker and works once you retry after starting it.
-  fetch(`${sidecarUrl}/speakers`)
-    .then((res) => res.json())
-    .then(({ speakers }) => {
-      speakerSelect.innerHTML = speakers
-        .map((s) => `<option value="${s}"${s === currentSpeaker ? " selected" : ""}>${s}</option>`)
-        .join("");
-    })
-    .catch(() => {}); // keep the placeholder; sidecar not up yet
+  // Fetched via background.js, not directly here -- a page-context fetch to
+  // a loopback sidecar gets blocked by Private Network Access.
+  chrome.runtime.sendMessage({ target: "background", type: "GET_SPEAKERS", sidecarUrl }, (res) => {
+    if (!res || !res.ok) return; // keep the placeholder; sidecar not up yet
+    speakerSelect.innerHTML = res.speakers
+      .map((s) => `<option value="${s}"${s === currentSpeaker ? " selected" : ""}>${s}</option>`)
+      .join("");
+  });
 }
 
 function startChapter() {
@@ -213,8 +219,9 @@ function startChapter() {
     chunks: pendingChapter.chunks, // same array the prewarm already sent -- reuses its warm cache
     paragraphs: pendingChapter.paragraphs,
     chapterSessionId,
+    title: document.title, // shown in the OS/Chrome "now playing" widget
   });
-  window._vnTtsNextUrl = pendingChapter.nextUrl;
+  window._vnTtsNextAdapter = pendingChapter.nextAdapter;
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
@@ -239,23 +246,27 @@ chrome.runtime.onMessage.addListener((msg) => {
     statusEl.textContent = msg.message;
     started = false; // the audio element never actually started; let Play retry cleanly
   } else if (msg.type === "CHAPTER_DONE") {
-    const nextUrl = window._vnTtsNextUrl;
     playBtn.textContent = "▶";
     started = false;
-    if (!nextUrl) {
+    const nextAdapter = window._vnTtsNextAdapter;
+    const goNext = () => {
+      // Re-query at click time, not the stale reference from CHAPTER_DONE --
+      // the DOM may have shifted during however long the chapter took to play.
+      const target = findNextTarget(nextAdapter);
+      if (!target) return;
+      if (target.url) location.href = target.url;
+      else target.el.click();
+    };
+    if (!findNextTarget(nextAdapter)) {
       statusEl.textContent = "End of novel.";
       return;
     }
     if (autoNext) {
-      chrome.storage.session.set({ vnTtsAutoContinue: true }, () => {
-        location.href = nextUrl;
-      });
+      chrome.storage.session.set({ vnTtsAutoContinue: true }, goNext);
     } else {
       statusEl.textContent = "Chapter done — click to continue ➜";
       statusEl.style.cursor = "pointer";
-      statusEl.onclick = () => {
-        location.href = nextUrl;
-      };
+      statusEl.onclick = goNext;
     }
   }
 });

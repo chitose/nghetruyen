@@ -12,7 +12,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["defaults.js", "chunker.js", "content.js"],
+      "js": ["defaults.js", "chunker.js", "readerable.js", "content.js"],
       "css": ["player-bar.css"],
       "run_at": "document_idle"
     }

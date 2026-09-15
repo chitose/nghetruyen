@@ -3,6 +3,10 @@
 // side can message the other directly.
 importScripts("defaults.js");
 
+// chrome.storage.session defaults to extension-pages-only access; content.js
+// needs it for the auto-continue-to-next-chapter flag.
+chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" });
+
 let readingTabId = null;
 
 async function ensureOffscreenDocument() {
@@ -42,5 +46,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.target === "content-bar" && readingTabId != null) {
     chrome.tabs.sendMessage(readingTabId, msg).catch(() => {});
+  }
+
+  if (msg.target === "background" && msg.type === "GET_SPEAKERS") {
+    // Runs here, not in content.js: a page-context fetch to a loopback
+    // sidecar gets blocked by Private Network Access, but the service
+    // worker's fetch is extension-privileged (covered by host_permissions).
+    fetch(`${msg.sidecarUrl}/speakers`)
+      .then((res) => res.json())
+      .then((data) => sendResponse({ ok: true, speakers: data.speakers }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
   }
 });
