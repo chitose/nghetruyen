@@ -51,7 +51,9 @@ toggleable text panel displays.
 _Avoid_: Block, section, line
 
 **Chunk**:
-A sentence-sized slice of a Paragraph. The unit the Sidecar synthesizes.
+A slice of a Paragraph, cut at the best boundary available (line break, sentence
+end, clause, word) and packed up to 400 characters, so it usually holds several
+sentences but never spans two Paragraphs. The unit the Sidecar synthesizes.
 Playback advances through Chunks automatically; `next`/`prev` skips whole
 Paragraphs instead.
 _Avoid_: Segment, fragment, utterance, block

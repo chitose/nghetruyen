@@ -66,7 +66,12 @@ class TestController(unittest.TestCase):
         result = self.controller.chapter_ready(["Câu một. Câu hai.", "Đoạn hai."], "My Chapter")
         self.playback.load_chapter.assert_called_once()
         chunks = self.playback.load_chapter.call_args.args[0]
-        self.assertEqual(len(chunks), 3)
+        # One chunk per Paragraph here: each Paragraph fits in a chunk, and
+        # chunks never span a Paragraph boundary (chunker.build_paragraph_chunks).
+        self.assertEqual(
+            [(c["text"], c["paragraphIndex"]) for c in chunks],
+            [("Câu một. Câu hai.", 0), ("Đoạn hai.", 1)],
+        )
         self.assertFalse(result["autoStart"])
         self.assertTrue(self.controller.chapter_loaded)
         self.assertEqual(self.controller.paragraph_text, "Câu một. Câu hai.")

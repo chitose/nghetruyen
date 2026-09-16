@@ -1,12 +1,36 @@
+import re
 import unittest
-from chunker import build_paragraph_chunks, join_short_paragraphs, split_into_chunks
+from chunker import (
+    build_paragraph_chunks,
+    join_short_paragraphs,
+    split_into_chunks,
+    split_text,
+)
+
+
+def normalized(text):
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def rejoined(chunks):
+    """Put chunks back together the way a reader would hear them: a chunk is
+    stripped of the whitespace at the cut, so the only word boundary that can
+    need restoring is between two word characters."""
+    text = ""
+    for chunk in chunks:
+        if text and text[-1].isalnum() and chunk[:1].isalnum():
+            text += " "
+        text += chunk
+    return normalized(text)
 
 
 class TestSplitIntoChunks(unittest.TestCase):
-    def test_basic_sentence_split(self):
+    def test_sentences_of_one_paragraph_share_a_chunk_when_they_fit(self):
+        # The gist merges pieces back up to chunk_size, so a short Paragraph is
+        # one chunk rather than one chunk per sentence.
         self.assertEqual(
             split_into_chunks("Xin chào. Tôi khỏe. Cảm ơn!"),
-            ["Xin chào.", "Tôi khỏe.", "Cảm ơn!"],
+            ["Xin chào. Tôi khỏe. Cảm ơn!"],
         )
 
     def test_no_terminal_punctuation_is_one_chunk(self):
@@ -21,16 +45,17 @@ class TestSplitIntoChunks(unittest.TestCase):
     def test_empty_or_whitespace_only_input(self):
         self.assertEqual(split_into_chunks("   "), [])
 
-    def test_long_run_on_sentence_splits_on_word_boundaries(self):
-        long_text = "từ " * 200 + "."
-        chunks = split_into_chunks(long_text, 50)
+    def test_every_chunk_fits_the_limit(self):
+        chunks = split_into_chunks("từ " * 200 + ".", 50)
         self.assertGreater(len(chunks), 1)
-        for c in chunks:
-            self.assertLessEqual(len(c), 50)
-        import re
-        rejoined = re.sub(r"\s+", " ", " ".join(chunks))
-        expected = re.sub(r"\s+", " ", long_text.strip())
-        self.assertEqual(rejoined, expected)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 50)
+
+    def test_splitting_keeps_all_the_text(self):
+        text = "Một câu dài dòng. " * 20
+        chunks = split_into_chunks(text, 120)
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(rejoined(chunks), normalized(text))
 
     def test_single_word_longer_than_max_len_still_emitted(self):
         no_spaces = "a" * 500 + "."
@@ -40,8 +65,72 @@ class TestSplitIntoChunks(unittest.TestCase):
     def test_curly_quote_handling(self):
         self.assertEqual(
             split_into_chunks('She said "go." Then left.'),
-            ['She said "go."', 'Then left.'],
+            ['She said "go." Then left.'],
         )
+
+    def test_abbreviation_before_a_proper_noun_can_still_split(self):
+        # Documented limitation: "T.S." is followed by a capital, so the
+        # sentence guard sees a new sentence. A decimal, which is the other
+        # common false cut, is guarded (see the next test).
+        self.assertEqual(
+            split_into_chunks("T.S. Eliot viết.", 8),
+            ["T.S.", "Eliot", "viết."],
+        )
+
+    def test_decimals_do_not_end_a_sentence(self):
+        self.assertEqual(split_into_chunks("Pi là 3.14 nhé."), ["Pi là 3.14 nhé."])
+
+    def test_a_sentence_is_not_cut_before_its_own_lowercase_words(self):
+        # The old chunker only cut before an uppercase letter; the guard
+        # replaces that rule, so "rồi" stays with the sentence it belongs to.
+        self.assertEqual(
+            split_into_chunks("Anh ấy nói thôi. rồi im lặng."),
+            ["Anh ấy nói thôi. rồi im lặng."],
+        )
+
+    def test_line_breaks_split_before_sentence_punctuation_does(self):
+        chunks = split_into_chunks("Câu một.\nCâu hai.", 8)
+        self.assertEqual(chunks, ["Câu một.", "Câu hai."])
+
+    def test_a_paragraph_is_cut_at_the_best_available_boundary(self):
+        text = "Đoạn này dài hơn giới hạn, nên nó phải được cắt ở đâu đó."
+        chunks = split_into_chunks(text, 30)
+        self.assertGreater(len(chunks), 1)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 30)
+        self.assertEqual(rejoined(chunks), normalized(text))
+
+
+class TestSplitText(unittest.TestCase):
+    """The splitter's own knobs, which `split_into_chunks` fixes to its TTS
+    configuration."""
+
+    def test_the_top_separator_decides_where_a_chunk_may_end(self):
+        text = "Một câu dài dòng, với nhiều mệnh đề, ở trong đó."
+        chunks = split_text(text, chunk_size=20)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk), 20)
+        self.assertEqual(rejoined(chunks), normalized(text))
+
+    def test_overlap_repeats_the_tail_of_one_chunk_at_the_start_of_the_next(self):
+        chunks = split_text("từ " * 40 + ".", chunk_size=50, chunk_overlap=20)
+        self.assertGreater(len(chunks), 2)
+        shared = chunks[0][-5:]
+        self.assertTrue(
+            any(shared in chunk[1:] and chunk.startswith(shared) for chunk in chunks[1:]),
+            f"no chunk starts with the tail {shared!r}",
+        )
+
+    def test_overlap_larger_than_the_chunk_size_is_refused(self):
+        with self.assertRaises(ValueError):
+            split_text("anything", chunk_size=10, chunk_overlap=11)
+
+    def test_separators_can_be_given_as_literals(self):
+        # `is_separator_regex=False` escapes each Separator, so a plain string
+        # like "|" is a literal rather than an alternation.
+        chunks = split_text("a|b|c", chunk_size=2, separators=["|", ""], is_separator_regex=False)
+        self.assertEqual(normalized("".join(chunks)), "a|b|c")
+        self.assertGreater(len(chunks), 1)
 
 
 class TestJoinShortParagraphs(unittest.TestCase):
@@ -90,12 +179,18 @@ class TestBuildParagraphChunks(unittest.TestCase):
         self.assertEqual(
             [(c["text"], c["paragraphIndex"]) for c in chunks],
             [
-                ("Câu một.", 0),
-                ("Câu hai.", 0),
+                ("Câu một. Câu hai.", 0),
                 ("Đoạn hai chỉ có một câu.", 1),
                 ("Đoạn ba.", 2),
             ],
         )
+
+    def test_a_long_paragraph_yields_several_chunks_sharing_one_index(self):
+        chunks = build_paragraph_chunks(["từ " * 60], 50)
+        self.assertGreater(len(chunks), 1)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk["text"]), 50)
+            self.assertEqual(chunk["paragraphIndex"], 0)
 
 
 if __name__ == "__main__":
