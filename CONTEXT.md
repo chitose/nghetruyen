@@ -21,13 +21,19 @@ falls back to a best-effort generic guess (ADR-0006).
 _Avoid_: Parser, scraper, extractor, provider
 
 **Sidecar**:
-The local process running alongside the browser that turns text into audio. Not
-part of the extension; the extension talks to it over HTTP on localhost.
+The local process running alongside the App that turns text into audio. Not
+part of the App; the App talks to it over HTTP on localhost.
 _Avoid_: Server, backend, daemon, service
 
+**App**:
+The standalone Windows program (see ADR-0009) that embeds a Web View to
+display Pages, spawns and owns the Sidecar's lifecycle, and holds all
+playback state, settings, and Adapters. Replaced the Chrome extension.
+_Avoid_: Extension, client, program
+
 **Player Bar**:
-The floating control surface the extension overlays on a Page: playback,
-position, and voice controls. The only UI the extension owns.
+The floating control surface the App overlays on a Page: playback, position,
+and voice controls. The only UI the App owns.
 _Avoid_: Widget, overlay, HUD, controls, toolbar
 
 **Paragraph**:
