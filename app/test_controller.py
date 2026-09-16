@@ -259,6 +259,29 @@ class TestController(unittest.TestCase):
     def test_toggle_window_without_a_window_is_safe(self):
         Controller(self.config, self.playback, self.sidecar).toggle_window()
 
+    def test_a_window_created_hidden_is_reported_hidden(self):
+        # main.py restores Hide page from the session by creating the window
+        # hidden (ADR-0011); the chrome's first tick has to read "Show page".
+        controller = Controller(self.config, self.playback, self.sidecar)
+        controller.attach_content_window(self.window, hidden=True)
+        self.assertFalse(controller.window_visible)
+
+    def test_show_window_reveals_a_hidden_reader(self):
+        self.controller.toggle_window()
+        self.controller.show_window()
+        self.window.show.assert_called_once()
+        self.assertTrue(self.controller.window_visible)
+
+    def test_show_window_leaves_a_visible_reader_alone(self):
+        # Nothing to do, and nothing to raise to the front: the reader is
+        # already there.
+        self.controller.show_window()
+        self.window.show.assert_not_called()
+        self.assertTrue(self.controller.window_visible)
+
+    def test_show_window_without_a_window_is_safe(self):
+        Controller(self.config, self.playback, self.sidecar).show_window()
+
     def test_restore_last_page_defaults_on_and_is_in_settings(self):
         self.assertTrue(self.controller.restore_last_page)
         self.assertIn("restoreLastPage", self.controller.get_settings())
@@ -452,6 +475,22 @@ class TestController(unittest.TestCase):
         self.window.load_url.reset_mock()
         self.controller.open_options(self.OPTIONS_URL)
         self.window.load_url.assert_called_once_with(self.OPTIONS_URL)
+
+    def test_open_options_reveals_a_hidden_reader(self):
+        # Options renders in the reader window, so with the reader tucked away
+        # behind the strip the click used to look like it did nothing.
+        self._read_chapter()
+        self.controller.toggle_window()
+        self.window.load_url.reset_mock()
+        self.controller.open_options(self.OPTIONS_URL)
+        self.window.show.assert_called_once()
+        self.assertTrue(self.controller.window_visible)
+        self.window.load_url.assert_called_once_with(self.OPTIONS_URL)
+
+    def test_open_options_leaves_a_visible_reader_where_it_is(self):
+        self._read_chapter()
+        self.controller.open_options(self.OPTIONS_URL)
+        self.window.show.assert_not_called()
 
     def test_leave_options_returns_to_the_remembered_page(self):
         self._read_chapter()

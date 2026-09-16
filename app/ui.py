@@ -243,6 +243,16 @@ def status_text(controller) -> str:
     return controller.status
 
 
+def window_toggle_text(controller) -> str:
+    """What the Hide page / Show page button says.
+
+    It is the Controller's `window_visible` that decides, not the last click:
+    a launch that restored a hidden reader (ADR-0011) has to offer "Show page"
+    from its first tick, without anyone having pressed anything.
+    """
+    return "Hide page" if controller.window_visible else "Show page"
+
+
 def _chrome(controller) -> None:
     view = {
         "url_rev": -1,
@@ -294,7 +304,8 @@ def _chrome(controller) -> None:
                 ),
             ).props("flat dense")
             window_toggle = ui.button(
-                "Hide page", on_click=lambda: _in_thread(controller.toggle_window)
+                window_toggle_text(controller),
+                on_click=lambda: _in_thread(controller.toggle_window),
             ).props("flat dense")
 
         # --- Player Bar ---
@@ -408,7 +419,7 @@ def _chrome(controller) -> None:
                 speaker_select.update()
         play_button.text = PLAY_GLYPHS.get(controller.playback_state, "▶")
         play_button.enabled = controller.playback_state != "buffering"
-        window_toggle.text = "Hide page" if controller.window_visible else "Show page"
+        window_toggle.text = window_toggle_text(controller)
         rate_label.text = f"{controller.rate:.1f}x"
         if view["show_text"]:
             text_panel.text = controller.paragraph_text

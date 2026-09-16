@@ -41,7 +41,9 @@ instant. It starts the Sidecar automatically and opens two windows:
   `check_windows.py` reads those styles back.
   Drag its title bar to move it, the strip along its bottom edge to resize it,
   and use Hide page / Show page to tuck the reader away while you keep
-  listening. Its ✕ quits the app (so does closing either window). A small
+  listening -- which of the two it was survives a restart, and the ⚙ Options
+  button brings the reader back rather than opening into a window you cannot
+  see. Its ✕ quits the app (so does closing either window). A small
   audio visualizer next to the Player Bar shows the Chapter being read; the
   ‹ › arrows cycle its style (bars, mirrored, wave, blocks), and the chosen
   one is remembered in `config.json`.
@@ -75,11 +77,11 @@ Sidecar you start yourself is picked up too. See
 [ADR-0013](../docs/adr/0013-sidecar-startup-status.md) and
 [ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md).
 
-On shutdown the App saves the Page it was on, the reader window's bounds, and
-the dock height to `%APPDATA%\reading-web\session.json`, and restores them
-next launch (see [ADR-0011](../docs/adr/0011-restore-session-on-launch.md)).
-Turn "Reopen the last page on launch" off in Options to always start at Start
-URL instead.
+On shutdown the App saves the Page it was on, the reader window's bounds, the
+dock height, and whether the reader was hidden, to
+`%APPDATA%\reading-web\session.json`, and restores them next launch (see
+[ADR-0011](../docs/adr/0011-restore-session-on-launch.md)). Turn "Reopen the
+last page on launch" off in Options to always start at Start URL instead.
 
 ## How it fits together
 
@@ -169,12 +171,12 @@ was changed without re-baking.
 ## Options
 
 The Controls window's "⚙" button opens the Options page in the reader window
-(the docked strip is far too small for it): Start URL (what the reader opens on
-launch), a "reopen the last page" toggle, "read short paragraphs together" and
-its word threshold, Sidecar URL, default voice, default rate, backend model,
-and the Adapter list as JSON. "← Back" returns to the Chapter you were reading;
-because it is the same Page, playback and position are left alone rather than
-restarting.
+(the docked strip is far too small for it), showing that window first if Hide
+page had tucked it away: Start URL (what the reader opens on launch), a "reopen
+the last page" toggle, "read short paragraphs together" and its word threshold,
+Sidecar URL, default voice, default rate, backend model, and the Adapter list as
+JSON. "← Back" returns to the Chapter you were reading; because it is the same
+Page, playback and position are left alone rather than restarting.
 
 "Read short paragraphs together" merges Paragraphs under the threshold with
 the ones after them (`chunker.join_short_paragraphs`) before chunking, so a

@@ -1,8 +1,9 @@
 """What the App was doing last time, so it can pick up where it left off.
 
 Settings live in config.json (see config.py); this is the transient part: the
-Page the reader was on, where its window sat, and how tall the dock was.
-Written once on shutdown, read once on launch. See ADR-0011.
+Page the reader was on, where its window sat, how tall the dock was, and
+whether the reader was hidden behind the Controls strip. Written once on
+shutdown, read once on launch. See ADR-0011.
 """
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ DEFAULTS = {
     "lastUrl": "",        # the Page the reader was showing
     "readerBounds": None,  # [x, y, width, height]
     "dockHeight": None,    # the Controls strip's height in pixels
+    "readerHidden": False,  # Hide page / Show page, as it was at close
 }
 
 
@@ -41,6 +43,17 @@ def restore_dock_height(stored, default):
     if isinstance(stored, (int, float)) and not isinstance(stored, bool):
         return int(stored)
     return default
+
+
+def restore_hidden(stored) -> bool:
+    """Whether the reader window was hidden (Hide page) when the App closed.
+
+    Only a real `True` counts. A session.json written before this was stored,
+    or hand-edited to something odd, has to launch with the reader *on screen*
+    -- being tucked away is the state that needs justifying, not the other way
+    round.
+    """
+    return stored is True
 
 
 class Session:

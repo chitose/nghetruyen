@@ -43,9 +43,9 @@ Bar (whichever you change last wins), plus the Adapter list (content/strip/next
 selectors per hostname) which only lives here.
 
 By default the App reopens the Page you were last on, at the same window
-position and dock height
-([ADR-0011](docs/adr/0011-restore-session-on-launch.md)); turn "Reopen the last
-page on launch" off in Options to always start at Start URL.
+position and dock height, and with the reader window hidden or in front exactly
+as you left it ([ADR-0011](docs/adr/0011-restore-session-on-launch.md)); turn
+"Reopen the last page on launch" off in Options to always start at Start URL.
 
 Two extraction paths, per [ADR-0006](docs/adr/0006-generic-extraction-fallback.md):
 

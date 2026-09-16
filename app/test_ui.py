@@ -8,7 +8,7 @@ on (see docs/adr/0013-sidecar-startup-status.md).
 import unittest
 from types import SimpleNamespace
 
-from ui import status_text
+from ui import status_text, window_toggle_text
 
 
 def controller(**overrides):
@@ -20,6 +20,7 @@ def controller(**overrides):
         "total_paragraphs": 0,
         "paragraph_index": 0,
         "status": "Open a chapter to start reading.",
+        "window_visible": True,
     }
     state.update(overrides)
     return SimpleNamespace(**state)
@@ -75,6 +76,18 @@ class TestStatusText(unittest.TestCase):
     def test_ready_sidecar_leaves_error_and_status_alone(self):
         text = status_text(controller(status="No readable Chapter found on this Page."))
         self.assertEqual(text, "No readable Chapter found on this Page.")
+
+
+class TestWindowToggleText(unittest.TestCase):
+    def test_a_visible_reader_offers_to_hide_it(self):
+        self.assertEqual(window_toggle_text(controller()), "Hide page")
+
+    def test_a_hidden_reader_offers_to_show_it(self):
+        # Including one that was already hidden when the App launched: that is
+        # the session's doing, not a click's (docs/adr/0011).
+        self.assertEqual(
+            window_toggle_text(controller(window_visible=False)), "Show page",
+        )
 
 
 if __name__ == "__main__":

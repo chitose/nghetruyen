@@ -7,8 +7,9 @@ window docked under the reader; the native Web View renders the Chapter and
 runs content.js for extraction. Both talk to the one Controller, which owns
 playback state -- see docs/adr/0010-nicegui-chrome.md.
 
-Where the App was last time (the Page, the reader's bounds, the dock height)
-is read from session.json on launch and written back on shutdown -- see
+Where the App was last time (the Page, the reader's bounds, the dock height,
+and whether the reader was hidden behind the strip) is read from session.json
+on launch and written back on shutdown -- see
 docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` provisions the
 Sidecar's venv when it is missing and spawns it, reporting progress to the
 startup window and then to the chrome, so startup is neither silent nor a
@@ -30,7 +31,7 @@ from config import Config
 from controller import Controller
 from docking import CONTROLS_HEIGHT, dock
 from playback import PlaybackEngine
-from session import Session, restore_bounds, restore_dock_height
+from session import Session, restore_bounds, restore_dock_height, restore_hidden
 from sidecar_client import SidecarClient
 from sidecar_env import find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
@@ -219,14 +220,22 @@ if __name__ == "__main__":
     if controller.restore_last_page:
         start_url = session.get("lastUrl") or start_url
 
+    # Hide page is remembered too, so a session spent listening with the reader
+    # tucked away comes back that way. pywebview creates the window hidden
+    # rather than showing and hiding it, which would flash it on screen first;
+    # `hidden=True` still runs the window's `shown` handlers, so the dock, the
+    # bounds tracking, and the startup window all behave as usual.
+    reader_hidden = restore_hidden(session.get("readerHidden"))
+
     content_window = webview.create_window(
         "Nghe Truyện",
         url=start_url,
         js_api=Api(controller),
         x=content_x, y=content_y, width=content_width, height=content_height,
         min_size=(MIN_CONTENT_WIDTH, MIN_CONTENT_HEIGHT),
+        hidden=reader_hidden,
     )
-    controller.attach_content_window(content_window)
+    controller.attach_content_window(content_window, hidden=reader_hidden)
     content_window.events.loaded += lambda: inject_content_script(content_window)
 
     # Frameless and not draggable: it reads as part of the reader window, and
@@ -283,6 +292,7 @@ if __name__ == "__main__":
             lastUrl=controller.current_url or session.get("lastUrl") or "",
             readerBounds=bounds["value"],
             dockHeight=dock_state.height,
+            readerHidden=not controller.window_visible,
         )
         try:
             session.save()

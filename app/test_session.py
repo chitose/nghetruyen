@@ -8,6 +8,7 @@ from session import (
     Session,
     restore_bounds,
     restore_dock_height,
+    restore_hidden,
 )
 
 
@@ -41,12 +42,16 @@ class TestSession(unittest.TestCase):
 
     def test_update_and_save_round_trip(self):
         session = Session(self.path)
-        session.update(lastUrl="https://x.test/c1", readerBounds=[1, 2, 800, 600], dockHeight=200)
+        session.update(
+            lastUrl="https://x.test/c1", readerBounds=[1, 2, 800, 600],
+            dockHeight=200, readerHidden=True,
+        )
         session.save()
         reloaded = Session(self.path)
         self.assertEqual(reloaded.get("lastUrl"), "https://x.test/c1")
         self.assertEqual(reloaded.get("readerBounds"), [1, 2, 800, 600])
         self.assertEqual(reloaded.get("dockHeight"), 200)
+        self.assertTrue(reloaded.get("readerHidden"))
 
     def test_save_creates_the_parent_directory(self):
         nested = Path(self.tmpdir.name) / "nested" / "session.json"
@@ -92,6 +97,17 @@ class TestRestoreDockHeight(unittest.TestCase):
     def test_falls_back_for_missing_or_bad_values(self):
         for stored in (None, "tall", True):
             self.assertEqual(restore_dock_height(stored, 176), 176)
+
+
+class TestRestoreHidden(unittest.TestCase):
+    def test_a_reader_hidden_at_close_comes_back_hidden(self):
+        self.assertTrue(restore_hidden(True))
+
+    def test_anything_else_comes_back_on_screen(self):
+        # A session.json from before this was stored, or one somebody edited,
+        # must not launch the App with the reader tucked away behind the strip.
+        for stored in (False, None, "yes", 1, {}, []):
+            self.assertFalse(restore_hidden(stored))
 
 
 if __name__ == "__main__":

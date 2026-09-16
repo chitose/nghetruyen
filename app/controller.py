@@ -84,10 +84,18 @@ class Controller:
 
     # --- wiring -------------------------------------------------------------
 
-    def attach_content_window(self, window) -> None:
+    def attach_content_window(self, window, hidden: bool = False) -> None:
         """The native Web View the chrome drives. Set once, right after
-        webview.create_window()."""
+        webview.create_window().
+
+        `hidden` says the window was created hidden -- Hide page was the last
+        thing the reader did before closing, and the session remembered it
+        (ADR-0011). `window_visible` has to agree from the start, so the
+        chrome's first tick draws "Show page" rather than a button that claims
+        a window you cannot see is on screen.
+        """
         self._content_window = window
+        self.window_visible = not hidden
 
     def attach_dock(self, dock) -> None:
         """The docked Controls strip, so the chrome can resize and move it.
@@ -322,15 +330,29 @@ class Controller:
             return
         if self.window_visible:
             self._content_window.hide()
+            self.window_visible = False
         else:
-            self._content_window.show()
-        self.window_visible = not self.window_visible
+            self.show_window()
+
+    def show_window(self) -> None:
+        """Bring the reader window back, if it is hidden.
+
+        Anything that puts something *in* the reader window has to call this
+        first: Options opens there (open_options below), and on a hidden reader
+        that click looked like it had done nothing at all.
+        """
+        if self._content_window is None or self.window_visible:
+            return
+        self._content_window.show()
+        self.window_visible = True
 
     def open_options(self, url: str) -> None:
         """Show the Options page in the reader window (the Controls strip is
         too small for it), remembering the Page so leave_options() can hand it
-        back."""
+        back. The reader is revealed first -- Options in a window the reader
+        has hidden behind the strip is Options nobody can see."""
         self._reader_url = self.current_url or self._reader_url
+        self.show_window()
         self._load_url(url)
 
     def leave_options(self) -> None:
