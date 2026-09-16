@@ -35,7 +35,10 @@ instant. It starts the Sidecar automatically and opens two windows:
 - **Nghe Truyện -- Controls** -- the NiceGUI chrome: address bar, Player Bar
   (play/pause, prev/next, speed, voice, auto-next, current-Paragraph toggle).
   It is frameless and docked flush under the reader window, following its
-  moves and resizes (and hiding with it when minimized) via `docking.py`.
+  moves and resizes (and hiding with it when minimized) via `docking.py`, and
+  it is a tool window (`window_group.py`), so Windows gives it no taskbar
+  button and no Alt-Tab entry of its own -- the App looks like one window.
+  `check_windows.py` reads those styles back.
   Drag its title bar to move it, the strip along its bottom edge to resize it,
   and use Hide page / Show page to tuck the reader away while you keep
   listening. Its ✕ quits the app (so does closing either window). A small

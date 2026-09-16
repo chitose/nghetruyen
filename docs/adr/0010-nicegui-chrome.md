@@ -1,5 +1,24 @@
 # The App's chrome is NiceGUI in its own window; the Page keeps a native Web View
 
+**Amended:** the pair now presents as one window to Windows. The strip is marked
+as a tool window (`app/window_group.py`, applied from `main.py` when the
+Controls window appears), which takes away its taskbar button and its Alt-Tab
+entry, so the App shows up once. Nothing else below changes -- it is still two
+native windows, and the iframe argument still rules out folding them into one.
+
+Ownership was tried and rejected: giving the strip the reader as its owner keeps
+it above the reader and destroys it with it, but Windows then disposes of the
+strip itself, without raising the event pywebview deregisters windows by
+(`del BrowserView.instances[uid]`), and pywebview's loop only ends when that
+dict is empty (`len(BrowserView.instances) == 0`). The App closed its windows
+and stayed alive. Closing the strip first from the reader's `closing` event
+fixed the hang but took the exit to 12-16s, because pywebview's property setters
+wait 15s on a destroyed window's `shown` event while `docking.py` is still
+repositioning it. Two extra moving parts, kept in step by hand, to stop the
+reader's bottom edge occasionally covering the strip's top one; not worth it.
+`app/check_windows.py` reports an owner on the strip as a problem for exactly
+this reason.
+
 The Player Bar, address bar, and Options screen were hand-written HTML/CSS/JS
 rendered into whatever Page the Web View happened to be showing. They are now
 a NiceGUI app (`app/ui.py`), served on `127.0.0.1:8935`. The address bar and

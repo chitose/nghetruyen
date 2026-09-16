@@ -37,6 +37,7 @@ from sidecar_manager import SidecarManager, SidecarStartup
 from splash import Splash
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
 from visualizer import Visualizer
+from window_group import as_tool_window
 
 def _frozen() -> bool:
     """True inside a PyInstaller build -- the standalone NgheTruyen.exe."""
@@ -239,6 +240,20 @@ if __name__ == "__main__":
     )
     dock_state = dock(content_window, controls_window, find_screen, height=dock_height)
     controller.attach_dock(dock_state)
+
+    # Windows should show the pair as one window: the strip becomes the reader's
+    # tool window, so it takes no taskbar button and no Alt-Tab entry, stays
+    # above the reader, and goes away with it. Applied once its native window
+    # exists, which is what `shown` marks. See
+    # docs/adr/0010-nicegui-chrome.md.
+    # Windows should show the pair as one window: the strip becomes a tool
+    # window, so it takes no taskbar button and no Alt-Tab entry of its own.
+    # Applied once its native window exists, which is what `shown` marks -- and
+    # deliberately *not* by making it the reader's owned window, which breaks
+    # the App's exit (see window_group). See docs/adr/0010-nicegui-chrome.md.
+    controls_window.events.shown += lambda *_args: as_tool_window(
+        controls_window, on_warning=warn
+    )
 
     # Geometry is tracked as it changes, because by shutdown the window may
     # already be gone and reading it there would be too late.

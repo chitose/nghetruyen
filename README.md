@@ -20,7 +20,9 @@ for why this is a standalone app instead of a Chrome extension, and
    (a small startup window covers the launch, then the Controls strip's status
    line reports how it goes, with a Retry button if it doesn't) and opens two
    windows: the reader (a Web View) and the NiceGUI Controls window that holds
-   the Player Bar. `run.bat` runs it from source;
+   the Player Bar -- the strip is the reader's tool window, so Windows shows
+   them as one: a single taskbar button and a single Alt-Tab entry.
+   `run.bat` runs it from source;
    [`app/NgheTruyen.exe`](docs/adr/0012-standalone-app-exe.md) is the same App
    bundled into one standalone file (still needs `sidecar/`), which pushing a
    `v*` tag builds and publishes as a GitHub Release
