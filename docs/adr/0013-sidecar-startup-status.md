@@ -1,5 +1,16 @@
 # The Controls strip reports the Sidecar's startup
 
+**Amended:** a startup window was added after all (`app/splash.py`), because
+the strip is not on screen for the first stretch of a launch: a onefile exe
+unpacks before Python runs, and the chrome has to be serving before pywebview
+can show anything, so the part that looked like "nothing happens" was exactly
+the part the strip could not cover. It is small, always-on-top and takes the
+same status the strip does, and `main.py` takes it down when the reader window
+appears -- so the strip is still the surface that carries Retry, and nothing
+about that decision below changes for the minute after launch. It is not a
+third pywebview window: that is what would have entangled it with `docking.py`,
+so it is a plain Win32 window that owns no App state.
+
 Starting the App used to say nothing about the Sidecar. `main.py` spawned it,
 a background thread polled `/speakers`, and a Sidecar that never answered left
 one line in `%APPDATA%\reading-web\nghetruyen.log` -- a file nothing points at

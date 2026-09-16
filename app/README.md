@@ -50,6 +50,12 @@ Playback only does anything on a Page where extraction found prose; the
 Controls window says so when a Page has nothing to read. Closing the reader
 window stops the Sidecar and closes the Controls window.
 
+A launch starts with a small always-on-top startup window -- the App's icon, its
+name, and one line of status. It covers the stretch where there is nothing else
+to show (the onefile exe unpacking, the chrome server coming up) and carries the
+Sidecar's status while it does, then closes as soon as the reader window is on
+screen: from there the Controls strip is the status line.
+
 The Sidecar starts with the App and its startup is reported on the Controls
 strip's status line: "Starting the Sidecar…" until `/speakers` answers, then
 the usual Chapter position. The slow first-run parts say so in that line while

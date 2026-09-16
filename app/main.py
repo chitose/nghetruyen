@@ -11,8 +11,8 @@ Where the App was last time (the Page, the reader's bounds, the dock height)
 is read from session.json on launch and written back on shutdown -- see
 docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` provisions the
 Sidecar's venv when it is missing and spawns it, reporting progress to the
-chrome, so startup is neither silent nor a manual setup step -- see
-docs/adr/0013-sidecar-startup-status.md and
+startup window and then to the chrome, so startup is neither silent nor a
+manual setup step -- see docs/adr/0013-sidecar-startup-status.md and
 docs/adr/0016-app-provisions-the-sidecar-environment.md.
 """
 import sys
@@ -34,6 +34,7 @@ from session import Session, restore_bounds, restore_dock_height
 from sidecar_client import SidecarClient
 from sidecar_env import find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
+from splash import Splash
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
 from visualizer import Visualizer
 
@@ -153,6 +154,12 @@ def initial_layout():
 
 
 if __name__ == "__main__":
+    # First thing, because the exe unpacks and the chrome takes a moment to
+    # serve: this window covers that gap with the Sidecar's status, then hands
+    # over to the Controls strip. See docs/adr/0013-sidecar-startup-status.md.
+    splash = Splash(icon_path=ICON_PATH, on_warning=warn)
+    splash.start()
+
     config = Config(CONFIG_PATH)
     session = Session(SESSION_PATH)
 
@@ -179,8 +186,15 @@ if __name__ == "__main__":
     # Retry button runs the same call again; see
     # docs/adr/0013-sidecar-startup-status.md.
     backend_model = config.get("backendModel")
+
+    def report_sidecar(state, message=""):
+        """Both surfaces want this: the startup window while the App is still
+        coming up, and the strip the reader watches from then on."""
+        controller.report_sidecar(state, message)
+        splash.set_status(state, message)
+
     startup = SidecarStartup(
-        sidecar_manager, on_status=controller.report_sidecar, on_warning=warn,
+        sidecar_manager, on_status=report_sidecar, on_warning=warn,
     )
     startup.start(backend_model=backend_model)
     controller.attach_sidecar_retry(lambda: startup.start(backend_model=backend_model))
@@ -241,6 +255,9 @@ if __name__ == "__main__":
             pass
 
     content_window.events.shown += track_bounds
+    # The startup window has done its job the moment the reader is on screen:
+    # from here the Controls strip is the status line.
+    content_window.events.shown += lambda *_args: splash.close()
     content_window.events.moved += track_bounds
     content_window.events.resized += track_bounds
 
@@ -265,6 +282,7 @@ if __name__ == "__main__":
         shutting_down["done"] = True
         playback.stop()  # silence first: shutting the Sidecar down can take seconds
         save_session()
+        splash.close()  # quitting before the reader ever appeared
         for window in (controls_window, content_window):
             try:
                 window.destroy()

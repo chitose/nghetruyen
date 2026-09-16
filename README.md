@@ -17,9 +17,10 @@ for why this is a standalone app instead of a Chrome extension, and
    Native Windows Python, no WSL2; you can still run it by hand instead
    ([sidecar/README.md](sidecar/README.md)).
 2. **App** -- see [app/README.md](app/README.md). Starts the Sidecar for you
-   (the Controls strip's status line reports how that goes, with a Retry button
-   if it doesn't) and opens two windows: the reader (a Web View) and the NiceGUI
-   Controls window that holds the Player Bar. `run.bat` runs it from source;
+   (a small startup window covers the launch, then the Controls strip's status
+   line reports how it goes, with a Retry button if it doesn't) and opens two
+   windows: the reader (a Web View) and the NiceGUI Controls window that holds
+   the Player Bar. `run.bat` runs it from source;
    [`app/NgheTruyen.exe`](docs/adr/0012-standalone-app-exe.md) is the same App
    bundled into one standalone file (still needs `sidecar/`), which pushing a
    `v*` tag builds and publishes as a GitHub Release
