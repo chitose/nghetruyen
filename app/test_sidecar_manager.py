@@ -6,23 +6,47 @@ import urllib.error
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-from sidecar_manager import FAILED, READY, STARTING, SidecarManager, SidecarStartup
+from sidecar_manager import (
+    DEFAULT_HEALTH_TIMEOUT,
+    FAILED,
+    FIRST_RUN_TIMEOUT,
+    MODEL_MESSAGE,
+    PREPARING,
+    READY,
+    SETUP_MESSAGE,
+    STARTING,
+    SidecarManager,
+    SidecarStartup,
+)
 
 
 class FakeManager:
-    """Stands in for SidecarManager: liveness and health are scripted, and the
-    wait can flip them mid-flight the way a real one changes state."""
+    """Stands in for SidecarManager: liveness, health, and provisioning are
+    scripted, and the wait can flip them mid-flight the way a real one changes
+    state."""
 
-    def __init__(self, healthy=False, running=True, using_existing=False, on_wait=None):
+    def __init__(self, healthy=False, running=True, using_existing=False,
+                 on_wait=None, prepare_result=(True, "", False)):
         self.log_path = r"C:\sidecar\sidecar.log"
         self.healthy = healthy
         self.running = running
         self.using_existing = using_existing
         self.on_wait = on_wait
+        self.prepare_result = prepare_result
+        self.calls = []
         self.ensure_calls = []
         self.waits = 0
+        self.wait_timeouts = []
+
+    def is_healthy(self):
+        return self.healthy
+
+    def prepare(self):
+        self.calls.append("prepare")
+        return self.prepare_result
 
     def ensure_running(self, backend_model="default"):
+        self.calls.append("ensure_running")
         self.ensure_calls.append(backend_model)
 
     @property
@@ -30,7 +54,9 @@ class FakeManager:
         return self.running
 
     def wait_healthy(self, timeout=None):
+        self.calls.append("wait_healthy")
         self.waits += 1
+        self.wait_timeouts.append(timeout)
         if self.on_wait is not None:
             self.on_wait(self)
         return self.healthy
@@ -244,13 +270,19 @@ class TestSidecarStartup(unittest.TestCase):
         self.statuses = []
         self.warnings = []
 
-    def startup(self, manager, spawn=None):
+    def startup(self, manager, spawn=None, cache_present=None,
+                timeout=DEFAULT_HEALTH_TIMEOUT, first_run_timeout=FIRST_RUN_TIMEOUT):
         return SidecarStartup(
             manager,
             on_status=lambda state, message: self.statuses.append((state, message)),
             on_warning=self.warnings.append,
             # No real thread: a test runs the watch inline and sees the result.
             spawn=spawn or (lambda watch: watch()),
+            timeout=timeout,
+            first_run_timeout=first_run_timeout,
+            # Scripted: the real check reads this machine's Hugging Face cache,
+            # and it only decides how long a wait may last.
+            cache_present=cache_present or (lambda: True),
         )
 
     def test_reports_starting_then_ready(self):
@@ -329,6 +361,58 @@ class TestSidecarStartup(unittest.TestCase):
         self.assertEqual(self.statuses, [(STARTING, "")])
         startup.start()  # and Retry cannot start another one either
         self.assertEqual(len(watchers), 0)
+
+    # --- provisioning sidecar/venv (ADR-0016) -------------------------------
+
+    def test_an_already_answering_sidecar_needs_no_environment(self):
+        # Started by hand, or the Docker image: building a venv beside it would
+        # be minutes of work for nothing.
+        manager = FakeManager(healthy=True, using_existing=True)
+        self.startup(manager).start()
+        self.assertEqual(manager.calls, ["ensure_running", "wait_healthy"])
+        self.assertNotIn(PREPARING, [state for state, _ in self.statuses])
+
+    def test_the_environment_is_built_before_the_spawn(self):
+        manager = FakeManager(healthy=False, prepare_result=(True, "", True))
+        self.startup(manager).start()
+        self.assertEqual(manager.calls[0], "prepare")
+        self.assertEqual(manager.calls[1], "ensure_running")
+        self.assertEqual(
+            self.statuses[1], (PREPARING, SETUP_MESSAGE),
+        )
+
+    def test_a_failed_setup_names_the_readme_instead_of_a_log(self):
+        reason = "Python 3.10 or newer was not found on PATH, so the Sidecar's environment cannot be created."
+        manager = FakeManager(healthy=False, prepare_result=(False, reason, False))
+        self.startup(manager).start()
+        state, message = self.statuses[-1]
+        self.assertEqual(state, FAILED)
+        self.assertIn(reason, message)
+        self.assertIn("sidecar/README.md", message)
+        self.assertNotIn(manager.log_path, message)  # nothing was spawned, so no log
+        self.assertEqual(manager.ensure_calls, [])  # no point spawning without a venv
+        self.assertEqual(manager.waits, 0)
+        self.assertIn("sidecar/README.md", self.warnings[0])
+
+    def test_a_fresh_install_waits_for_the_model_download(self):
+        # The venv just got built, so the model certainly is not cached yet --
+        # a 60s timeout would report a normal first run as a failure.
+        manager = FakeManager(healthy=False, prepare_result=(True, "", True))
+        self.startup(manager, timeout=60.0, first_run_timeout=900.0).start()
+        self.assertIn((PREPARING, MODEL_MESSAGE), self.statuses)
+        self.assertEqual(manager.wait_timeouts, [900.0])
+
+    def test_an_empty_model_cache_also_counts_as_a_first_run(self):
+        manager = FakeManager(healthy=True, prepare_result=(True, "", False))
+        self.startup(manager, cache_present=lambda: False).start()
+        self.assertIn((PREPARING, MODEL_MESSAGE), self.statuses)
+        self.assertEqual(manager.wait_timeouts, [900.0])
+
+    def test_a_warm_cache_with_a_ready_venv_uses_the_normal_timeout(self):
+        manager = FakeManager(healthy=False, prepare_result=(True, "", False))
+        self.startup(manager, timeout=60.0).start()
+        self.assertNotIn(MODEL_MESSAGE, [message for _, message in self.statuses])
+        self.assertEqual(manager.wait_timeouts, [60.0])
 
 
 if __name__ == "__main__":

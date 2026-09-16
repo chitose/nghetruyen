@@ -12,7 +12,9 @@ and its output goes to sidecar.log instead, so startup errors stay readable.
 `SidecarStartup` sits on top of `SidecarManager`: it drives the launch and
 reports how it went, so the chrome can show the reader what is happening
 instead of the Sidecar failing silently into that log. See
-docs/adr/0013-sidecar-startup-status.md.
+docs/adr/0013-sidecar-startup-status.md. It also provisions the Sidecar's
+environment before spawning, so `sidecar/venv` no longer has to be set up by
+hand -- see docs/adr/0016-app-provisions-the-sidecar-environment.md.
 """
 import os
 import subprocess
@@ -22,6 +24,8 @@ import time
 import urllib.error
 import urllib.request
 
+import sidecar_env
+
 LOG_NAME = "sidecar.log"
 
 # How long the Sidecar gets to answer /speakers before the App calls it failed.
@@ -30,11 +34,21 @@ LOG_NAME = "sidecar.log"
 # waits again rather than respawning.
 DEFAULT_HEALTH_TIMEOUT = 60.0
 
+# A first run is slower than that: the venv may have just been built, and the
+# ~1.3 GB voice model still has to come down before /speakers answers at all.
+FIRST_RUN_TIMEOUT = 900.0
+
 # Sidecar startup states, reported through SidecarStartup's on_status and
 # rendered by the chrome (see controller.report_sidecar).
 STARTING = "starting"
+PREPARING = "preparing"
 READY = "ready"
 FAILED = "failed"
+
+# The two things that happen before the Sidecar can say anything itself; both
+# reach the reader through ui.status_text.
+SETUP_MESSAGE = "Setting up the Sidecar's environment (first run only)…"
+MODEL_MESSAGE = "Downloading the Sidecar's voice model (first run only, about 1.3 GB)…"
 
 
 def _hidden_window_kwargs() -> dict:
@@ -88,7 +102,7 @@ class SidecarManager:
             self._close_log()
             self._warn(
                 f"Warning: failed to start the Sidecar ({err}). "
-                "Is sidecar/venv set up? See sidecar/README.md."
+                "See sidecar/README.md for setting up sidecar/venv."
             )
 
     def ensure_running(self, backend_model: str = "default") -> None:
@@ -104,6 +118,17 @@ class SidecarManager:
         if self._proc is not None:
             self.stop()  # the handle is dead; clear it so start() spawns again
         self.start(backend_model=backend_model)
+
+    def prepare(self) -> tuple[bool, str, bool]:
+        """Make sidecar/venv able to run the Sidecar, provisioning it if needed.
+
+        Separate from start() because it can be slow -- a first run installs
+        ~700 MB of packages -- and because it is pointless when something is
+        already answering on the port. Output goes to this manager's log, next
+        to the Sidecar's own; see
+        docs/adr/0016-app-provisions-the-sidecar-environment.md.
+        """
+        return sidecar_env.ensure_env(self.cwd, log_path=self.log_path)
 
     def speakers_url(self) -> str:
         return f"http://localhost:{self.port}/speakers"
@@ -183,16 +208,25 @@ class SidecarStartup:
     ensure_running` is what makes it safe: a Sidecar that is merely slow is
     waited on rather than replaced. A watch already in flight swallows the
     repeat, so double-clicking Retry spawns nothing twice.
+
+    A watch also provisions the Sidecar's environment when nothing answers on
+    the port yet, and says so while it does -- which is what makes a fresh
+    checkout play without a manual `pip install` first.
     """
 
     def __init__(self, manager, on_status, on_warning=None,
-                 timeout: float = DEFAULT_HEALTH_TIMEOUT, spawn=None):
+                 timeout: float = DEFAULT_HEALTH_TIMEOUT, spawn=None,
+                 first_run_timeout: float = FIRST_RUN_TIMEOUT,
+                 cache_present=None):
         self._manager = manager
         self._on_status = on_status
         self._on_warning = on_warning or (lambda message: None)
         self._timeout = timeout
-        # Injectable so tests do not have to race a real thread.
+        self._first_run_timeout = first_run_timeout
+        # Injectable so tests do not have to race a real thread, read the real
+        # Hugging Face cache, or install anything.
         self._spawn = spawn or _run_in_background
+        self._cache_present = cache_present or sidecar_env.model_cache_present
         self._lock = threading.Lock()
         self._watching = False
         self._stopped = False
@@ -220,12 +254,35 @@ class SidecarStartup:
             with self._lock:
                 if self._stopped:
                     return
+            # Provisioning is only worth its minutes when nothing answers yet:
+            # a Sidecar started by hand, or the Docker image, already has an
+            # environment and does not need one built beside it.
+            if not self._manager.is_healthy():
+                self._on_status(PREPARING, SETUP_MESSAGE)
+                ok, reason, provisioned = self._manager.prepare()
+                if not ok:
+                    self._fail(reason, hint="See sidecar/README.md")
+                    return
+            else:
+                provisioned = False
+
+            with self._lock:
+                if self._stopped:
+                    return
                 self._manager.ensure_running(backend_model=backend_model)
+
             if not self._alive():
-                # The spawn itself failed (no sidecar/venv, bad path); waiting
-                # a minute would only delay the same verdict.
+                # The spawn itself failed (bad path, or a Python that cannot
+                # import uvicorn); waiting a minute would only delay the same
+                # verdict. The venv's own output is in the log this names.
                 self._fail("The Sidecar did not start.")
-            elif self._manager.wait_healthy(timeout=self._timeout):
+                return
+            first_run = provisioned or not self._cache_present()
+            if first_run:
+                self._on_status(PREPARING, MODEL_MESSAGE)
+            if self._manager.wait_healthy(
+                timeout=self._first_run_timeout if first_run else self._timeout
+            ):
                 self._on_status(READY, "")
             elif self._alive():
                 self._fail(
@@ -243,8 +300,11 @@ class SidecarStartup:
         counts: something else owns it (started by hand, or the Docker image)."""
         return bool(self._manager.using_existing or self._manager.is_running)
 
-    def _fail(self, note: str) -> None:
-        message = f"{note} See {self._manager.log_path}"
+    def _fail(self, note: str, hint: str | None = None) -> None:
+        """Report a failure, pointing at whatever the reader has to look at:
+        sidecar.log by default, but sidecar/README.md when the environment
+        could not be built at all."""
+        message = f"{note} {hint or f'See {self._manager.log_path}'}"
         self._on_status(FAILED, message)
         self._on_warning(f"Warning: {message}")
 

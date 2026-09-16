@@ -29,6 +29,15 @@ class TestStatusText(unittest.TestCase):
     def test_starting_sidecar_is_shown_on_launch(self):
         self.assertEqual(status_text(controller(sidecar_starting=True)), "Starting the Sidecar…")
 
+    def test_a_slow_startup_says_what_it_is_doing(self):
+        # Building sidecar/venv, or downloading the model, takes minutes; the
+        # line carries the reason instead of "Starting the Sidecar…" the whole
+        # time (docs/adr/0016-app-provisions-the-sidecar-environment.md).
+        text = status_text(controller(
+            sidecar_starting=True, sidecar_message="Setting up the Sidecar's environment…",
+        ))
+        self.assertEqual(text, "Setting up the Sidecar's environment…")
+
     def test_failure_is_shown_with_its_message(self):
         message = r"The Sidecar did not start. See C:\sidecar\sidecar.log"
         text = status_text(controller(sidecar_failed=True, sidecar_message=message))

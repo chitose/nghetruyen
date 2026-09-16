@@ -23,11 +23,14 @@ also appends them to `%APPDATA%\reading-web\nghetruyen.log`. `SidecarManager`
 takes an `on_warning` callback for the same reason.
 
 The Sidecar is deliberately not bundled. Its venv is 724 MB (vieneu, ONNX
-Runtime, transformers) before the ~1.3 GB model that Hugging Face downloads on
-first use, and ADR-0001/0008 keep it a separate process behind an HTTP contract
-so the engine can be swapped without touching the App. Folding it in would make
-the exe enormous and fragile for no gain: `sidecar/` still has to exist, and the
-model still has to be fetched once.
+Runtime, gradio/librosa -- `gradio` is a hard dependency of the package, and
+what drags in pandas, scikit-learn and numba) before the ~1.3 GB model that
+Hugging Face downloads on first use, and ADR-0001/0008 keep it a separate
+process behind an HTTP contract so the engine can be swapped without touching
+the App. Folding it in would make the exe enormous and fragile for no gain:
+`sidecar/` still has to exist, and the model still has to be fetched once.
+([ADR-0016](0016-app-provisions-the-sidecar-environment.md) later removed the
+manual venv setup step without moving the Sidecar into the App.)
 
 `SidecarManager.start()` probes `/speakers` before spawning anything. If a
 Sidecar already answers -- started by hand, or the Docker image -- the App uses

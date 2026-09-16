@@ -175,8 +175,14 @@ def create_pages(controller) -> None:
         _options(controller)
 
 
-def run_ui(host: str = UI_HOST, port: int = UI_PORT) -> None:
-    """Blocking; run in a background thread while pywebview owns the main one."""
+def run_ui(
+    host: str = UI_HOST, port: int = UI_PORT, favicon: str | None = None,
+) -> None:
+    """Blocking; run in a background thread while pywebview owns the main one.
+
+    `favicon` is the App's icon, which the chrome pages show in the tab and the
+    taskbar thumbnail; main.py passes the bundled copy's path.
+    """
     ui.run(
         host=host,
         port=port,
@@ -186,6 +192,7 @@ def run_ui(host: str = UI_HOST, port: int = UI_PORT) -> None:
         show=False,
         uvicorn_logging_level="warning",
         show_welcome_message=False,
+        favicon=favicon,
     )
 
 
@@ -227,7 +234,10 @@ def status_text(controller) -> str:
     if controller.error_message:
         return controller.error_message
     if controller.sidecar_starting:
-        return "Starting the Sidecar…"
+        # SidecarStartup narrates the slow parts (building sidecar/venv,
+        # downloading the voice model); "Starting…" is only what to say before
+        # it has said anything.
+        return controller.sidecar_message or "Starting the Sidecar…"
     if controller.total_paragraphs:
         return f"{controller.paragraph_index + 1} / {controller.total_paragraphs}"
     return controller.status

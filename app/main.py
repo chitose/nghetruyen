@@ -9,9 +9,11 @@ playback state -- see docs/adr/0010-nicegui-chrome.md.
 
 Where the App was last time (the Page, the reader's bounds, the dock height)
 is read from session.json on launch and written back on shutdown -- see
-docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` spawns the
-Sidecar and reports its progress to the chrome, so startup is not silent --
-see docs/adr/0013-sidecar-startup-status.md.
+docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` provisions the
+Sidecar's venv when it is missing and spawns it, reporting progress to the
+chrome, so startup is neither silent nor a manual setup step -- see
+docs/adr/0013-sidecar-startup-status.md and
+docs/adr/0016-app-provisions-the-sidecar-environment.md.
 """
 import sys
 import threading
@@ -30,6 +32,7 @@ from docking import CONTROLS_HEIGHT, dock
 from playback import PlaybackEngine
 from session import Session, restore_bounds, restore_dock_height
 from sidecar_client import SidecarClient
+from sidecar_env import find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
 from visualizer import Visualizer
@@ -49,6 +52,10 @@ else:
     BUNDLE_DIR = APP_DIR
 
 WEB_DIR = BUNDLE_DIR / "web"
+# Both windows' title bars and the taskbar icon. Bundled like web/ so the
+# standalone exe has it too, and a real file on disk because both pywebview and
+# NiceGUI load it by path rather than from the bundle.
+ICON_PATH = BUNDLE_DIR / "assets" / "nghetruyen.ico"
 # The data folder keeps its original name: config.json and session.json live
 # there, and renaming it would strand an existing install's settings.
 DATA_DIR = Path.home() / "AppData" / "Roaming" / "reading-web"
@@ -58,22 +65,6 @@ LOG_PATH = DATA_DIR / "nghetruyen.log"
 
 READERABLE_JS = (WEB_DIR / "readerable.js").read_text(encoding="utf-8")
 CONTENT_JS = (WEB_DIR / "content.js").read_text(encoding="utf-8")
-
-
-def find_sidecar_dir() -> Path:
-    """The Sidecar's directory, which the standalone exe deliberately omits.
-
-    Looked for beside the App and one level up, so both a checkout (app/ next
-    to sidecar/) and an exe dropped into the repo or shipped with sidecar/ next
-    to it work. ADR-0001/0008 keep the Sidecar a separate process with its own
-    heavy dependencies -- vieneu, ONNX Runtime, and a model downloaded from
-    Hugging Face -- so it is the one thing the exe does not carry.
-    """
-    for root in (APP_DIR, APP_DIR.parent):
-        candidate = root / "sidecar"
-        if (candidate / "server.py").is_file():
-            return candidate
-    return APP_DIR.parent / "sidecar"
 
 
 def warn(message: str) -> None:
@@ -165,9 +156,9 @@ if __name__ == "__main__":
     config = Config(CONFIG_PATH)
     session = Session(SESSION_PATH)
 
-    sidecar_dir = find_sidecar_dir()
+    sidecar_dir = find_sidecar_dir(APP_DIR)
     sidecar_manager = SidecarManager(
-        python_exe=str(sidecar_dir / "venv" / "Scripts" / "python.exe"),
+        python_exe=str(venv_python(sidecar_dir)),
         cwd=str(sidecar_dir),
         port=urlparse(config.get("sidecarUrl")).port or 8934,
         on_warning=warn,
@@ -197,7 +188,9 @@ if __name__ == "__main__":
     # Serve the chrome first: the Controls window below loads this URL, and the
     # pages must be registered before ui.run() starts the server.
     create_pages(controller)
-    threading.Thread(target=run_ui, daemon=True).start()
+    threading.Thread(
+        target=run_ui, kwargs={"favicon": str(ICON_PATH)}, daemon=True,
+    ).start()
     if not wait_for_ui(UI_PORT):
         warn("Warning: the NiceGUI chrome did not come up; the Controls window may be blank.")
 
@@ -284,4 +277,6 @@ if __name__ == "__main__":
     controls_window.events.closed += on_closed
     controller.attach_quit(on_closed)  # the chrome's close button
 
-    webview.start()
+    # One icon for both windows: pywebview applies it to every window it opens,
+    # so the Controls window gets it too. See app/make_icon.py for the mark.
+    webview.start(icon=str(ICON_PATH))

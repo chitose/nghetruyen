@@ -11,13 +11,21 @@ for why this is a standalone app instead of a Chrome extension, and
 
 ## Setup
 
-1. **Sidecar** -- see [sidecar/README.md](sidecar/README.md). Native Windows
-   Python, no WSL2.
+1. **Sidecar** -- nothing to do: the App creates `sidecar/venv` and installs
+   its requirements on first launch, saying so on the Controls strip's status
+   line ([ADR-0016](docs/adr/0016-app-provisions-the-sidecar-environment.md)).
+   Native Windows Python, no WSL2; you can still run it by hand instead
+   ([sidecar/README.md](sidecar/README.md)).
 2. **App** -- see [app/README.md](app/README.md). Starts the Sidecar for you
-   and opens two windows: the reader (a Web View) and the NiceGUI Controls
-   window that holds the Player Bar. `run.bat` runs it from source;
+   (the Controls strip's status line reports how that goes, with a Retry button
+   if it doesn't) and opens two windows: the reader (a Web View) and the NiceGUI
+   Controls window that holds the Player Bar. `run.bat` runs it from source;
    [`app/NgheTruyen.exe`](docs/adr/0012-standalone-app-exe.md) is the same App
-   bundled into one standalone file (still needs `sidecar/`).
+   bundled into one standalone file (still needs `sidecar/`), which pushing a
+   `v*` tag builds and publishes as a GitHub Release
+   ([ADR-0014](docs/adr/0014-release-by-tag.md)). Its icon is baked from
+   `app/assets/nghetruyen-source.png` by `app/make_icon.py`
+   ([ADR-0015](docs/adr/0015-app-icon.md)).
 3. Open a chapter and press ▶ in the Controls window. Playback only does
    anything where extraction actually found something to read, and the
    Controls window says so when it didn't. It also has a speed slider and a

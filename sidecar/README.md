@@ -1,11 +1,21 @@
 # Sidecar
 
 Turns text into audio using [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS).
-Started manually, not as a service -- see [ADR-0001](../docs/adr/0001-local-sidecar-for-tts.md).
+The App starts it and sets up its environment; run it by hand only when you want
+to -- see [ADR-0001](../docs/adr/0001-local-sidecar-for-tts.md) and
+[ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md).
 Runs on native Windows Python -- see [ADR-0008](../docs/adr/0008-switch-to-vieneu-tts.md)
 for why (v-tts, the previous engine, didn't).
 
-## Setup (once)
+## Setup
+
+Nothing to do by hand: on first launch the App creates `sidecar/venv` and
+installs [requirements.txt](requirements.txt) into it, saying so on the Controls
+strip's status line. It re-installs whenever `requirements.txt` changes, tracked
+by the `venv/requirements.sha256` marker the App writes after a successful
+install. Deleting `venv` is the way to force a clean reinstall.
+
+To set it up by hand instead, or to run the server without the App:
 
 ```bash
 cd sidecar
@@ -14,8 +24,9 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-First run downloads the model from Hugging Face (~1 minute). No vendoring, no
-platform workarounds -- `pip install vieneu` is the real, complete package.
+Either way the first synthesis downloads the model from Hugging Face (~1
+minute, ~1.3 GB). No vendoring, no platform workarounds --
+`pip install vieneu` is the real, complete package.
 
 ## Pick a voice
 
@@ -48,8 +59,8 @@ not start is left running when the App closes.
 
 When the App spawns it, no console window appears: it runs with Windows'
 `CREATE_NO_WINDOW`, and its output is appended to `sidecar.log` next to this
-file. Check that log first if the App warns that the Sidecar never became
-healthy.
+file -- as is the venv/pip output from setting the environment up. Check that
+log first if the App warns that the Sidecar never became healthy.
 
 ## Run in Docker (alternative to the venv)
 

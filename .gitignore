@@ -6,5 +6,6 @@ sidecar/__pycache__/
 *.pyc
 app/build/
 app/dist/
-app/*.spec
+# app/NgheTruyen.spec is source, not a build artifact: PyInstaller is run on it
+# rather than with flags that would regenerate it.
 app/*.exe
