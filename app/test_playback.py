@@ -51,6 +51,24 @@ class TestPlaybackEngine(unittest.TestCase):
         self.engine.skip(-1)
         self.assertEqual(self.engine._index, 0)
 
+    def test_stale_generation_play_current_does_not_touch_audio(self):
+        # Simulate skip()/_on_chunk_finished running concurrently with
+        # play_current()'s (blocking) call to _prefetch(): by the time
+        # play_current() re-acquires the lock afterward to check the
+        # generation, it must notice it moved on and bail out before
+        # touching audio, rather than loading/playing a now-superseded chunk.
+        self.engine._index = 0
+        original_prefetch = self.engine._prefetch
+
+        def prefetch_then_supersede():
+            original_prefetch()
+            self.engine._generation += 1  # simulate a concurrent skip()
+
+        self.engine._prefetch = prefetch_then_supersede
+        self.engine.play_current()
+        self.audio.load.assert_not_called()
+        self.audio.play.assert_not_called()
+
     def test_sidecar_error_notifies_error_and_paused(self):
         self.sidecar.synthesize.side_effect = RuntimeError("connection refused")
         engine = PlaybackEngine(self.sidecar, self.audio, notify=self.events.append)

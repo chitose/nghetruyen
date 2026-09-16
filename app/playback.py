@@ -22,6 +22,7 @@ class PlaybackEngine:
         self._chunks = []
         self._paragraphs = []
         self._index = 0
+        self._generation = 0
         self._rate = 1.0
         self._speaker = ""
         self._cache = {}
@@ -33,6 +34,7 @@ class PlaybackEngine:
             self._chunks = chunks
             self._paragraphs = paragraphs
             self._index = 0
+            self._generation += 1
             self._speaker = speaker
             self._rate = rate
             self._chapter_session_id = chapter_session_id
@@ -53,35 +55,48 @@ class PlaybackEngine:
         with self._lock:
             index = self._index
             total = len(self._chunks)
+            gen = self._generation
         if index >= total:
-            self._playing = False
+            with self._lock:
+                self._playing = False
             self._notify({"type": "CHAPTER_DONE"})
             return
         self._prefetch()
-        chunk = self._chunks[index]
+        with self._lock:
+            if gen != self._generation:
+                return  # superseded by a skip/chunk-finish/load_chapter while prefetching
+            chunk = self._chunks[index]
+            total_paragraphs = len(self._paragraphs)
+            paragraph_text = self._paragraphs[chunk["paragraphIndex"]]
+            future = self._cache.get(index)
+            speaker = self._speaker
         self._notify({
             "type": "CHUNK_INDEX",
             "paragraphIndex": chunk["paragraphIndex"],
-            "totalParagraphs": len(self._paragraphs),
-            "paragraphText": self._paragraphs[chunk["paragraphIndex"]],
+            "totalParagraphs": total_paragraphs,
+            "paragraphText": paragraph_text,
         })
         self._notify({"type": "PLAYBACK_STATE", "state": "buffering"})
-        with self._lock:
-            future = self._cache[index]
+        if future is None:
+            future = self._executor.submit(self._sidecar.synthesize, chunk["text"], speaker)
         try:
             wav_bytes = future.result()
         except Exception as err:
             self._notify({"type": "PLAYBACK_STATE", "state": "paused"})
             self._notify({"type": "ERROR", "message": f"Sidecar unreachable: {err}"})
             return
-        self._audio.load(wav_bytes)
-        self._audio.play(rate=self._rate)
-        self._playing = True
+        with self._lock:
+            if gen != self._generation:
+                return  # superseded while waiting on synthesis
+            self._audio.load(wav_bytes)
+            self._audio.play(rate=self._rate)
+            self._playing = True
         self._notify({"type": "PLAYBACK_STATE", "state": "playing"})
 
     def _on_chunk_finished(self) -> None:
         with self._lock:
             self._index += 1
+            self._generation += 1
         self.play_current()
 
     def toggle_play(self) -> None:
@@ -109,11 +124,11 @@ class PlaybackEngine:
         with self._lock:
             chunks = self._chunks
             index = self._index
-        current_paragraph = chunks[index]["paragraphIndex"] if index < len(chunks) else 0
-        target_paragraph = current_paragraph + direction
-        target = next((i for i, c in enumerate(chunks) if c["paragraphIndex"] == target_paragraph), None)
-        if target is None:
-            return
-        with self._lock:
+            current_paragraph = chunks[index]["paragraphIndex"] if index < len(chunks) else 0
+            target_paragraph = current_paragraph + direction
+            target = next((i for i, c in enumerate(chunks) if c["paragraphIndex"] == target_paragraph), None)
+            if target is None:
+                return
             self._index = target
+            self._generation += 1
         self.play_current()
