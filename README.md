@@ -1,4 +1,4 @@
-# reading-web
+# NgheTruyen
 
 A personal Chrome extension that reads Vietnamese web novels aloud, using a
 local sidecar for text-to-speech. See [CONTEXT.md](CONTEXT.md) for terminology
