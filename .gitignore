@@ -2,3 +2,7 @@ sidecar/venv/
 sidecar/__pycache__/
 **/__pycache__/
 *.pyc
+app/build/
+app/dist/
+app/*.spec
+app/ReadingWeb.exe
