@@ -58,3 +58,21 @@ class Api:
             return {"ok": True, "speakers": self._sidecar.speakers()}
         except Exception:
             return {"ok": False}
+
+    def get_adapters(self) -> list:
+        return self._config.get("adapters")
+
+    def save_adapters(self, adapters: list) -> None:
+        self._config.set("adapters", adapters)
+
+    def get_settings(self) -> dict:
+        return {
+            "sidecarUrl": self._config.get("sidecarUrl"),
+            "speaker": self._config.get("speaker"),
+            "defaultRate": self._config.get("defaultRate"),
+        }
+
+    def save_settings(self, settings: dict) -> None:
+        for key in ("sidecarUrl", "speaker", "defaultRate"):
+            if key in settings:
+                self._config.set(key, settings[key])

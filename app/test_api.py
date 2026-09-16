@@ -60,6 +60,32 @@ class TestApi(unittest.TestCase):
         self.sidecar.speakers.side_effect = RuntimeError("refused")
         self.assertEqual(self.api.get_speakers(), {"ok": False})
 
+    def test_get_adapters_returns_config_adapters(self):
+        self.config.get.side_effect = lambda key, default=None: (
+            DEFAULT_ADAPTERS if key == "adapters" else {
+                "defaultRate": 1.0, "speaker": "Minh Quân", "autoNext": True,
+            }.get(key, default)
+        )
+        self.assertEqual(self.api.get_adapters(), DEFAULT_ADAPTERS)
+
+    def test_save_adapters_persists_to_config(self):
+        new_adapters = [{"hostname": "example.com", "contentSelector": "main", "stripSelectors": [], "nextMode": "generic", "nextValue": ""}]
+        self.api.save_adapters(new_adapters)
+        self.config.set.assert_called_with("adapters", new_adapters)
+
+    def test_get_settings_returns_sidecar_url_speaker_rate(self):
+        self.config.get.side_effect = lambda key, default=None: {
+            "sidecarUrl": "http://localhost:8934", "speaker": "Minh Quân", "defaultRate": 1.0,
+        }.get(key, default)
+        settings = self.api.get_settings()
+        self.assertEqual(settings["sidecarUrl"], "http://localhost:8934")
+
+    def test_save_settings_persists_each_field(self):
+        self.api.save_settings({"sidecarUrl": "http://localhost:9999", "speaker": "Adam", "defaultRate": 1.2})
+        self.config.set.assert_any_call("sidecarUrl", "http://localhost:9999")
+        self.config.set.assert_any_call("speaker", "Adam")
+        self.config.set.assert_any_call("defaultRate", 1.2)
+
 
 if __name__ == "__main__":
     unittest.main()

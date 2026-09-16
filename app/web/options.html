@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Reading Web -- Options</title>
+  <style>
+    body { font-family: sans-serif; margin: 1rem; max-width: 640px; }
+    label { display: block; margin-top: 0.75rem; }
+    textarea { width: 100%; height: 200px; font-family: monospace; }
+    input[type=text], input[type=number] { width: 100%; }
+  </style>
+</head>
+<body>
+  <h1>Settings</h1>
+  <label>Sidecar URL <input id="sidecarUrl" type="text"></label>
+  <label>Default speaker <input id="speaker" type="text"></label>
+  <label>Default rate <input id="defaultRate" type="number" step="0.1" min="0.5" max="2"></label>
+  <button id="saveSettings">Save settings</button>
+
+  <h1>Adapters (JSON)</h1>
+  <textarea id="adapters"></textarea>
+  <button id="saveAdapters">Save adapters</button>
+  <p id="status"></p>
+
+  <script src="options.js"></script>
+</body>
+</html>
