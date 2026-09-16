@@ -37,6 +37,12 @@ class TestSplitIntoChunks(unittest.TestCase):
         chunks = split_into_chunks(no_spaces, 100)
         self.assertGreaterEqual(len(chunks), 5)
 
+    def test_curly_quote_handling(self):
+        self.assertEqual(
+            split_into_chunks('She said "go." Then left.'),
+            ['She said "go."', 'Then left.'],
+        )
+
 
 class TestBuildParagraphChunks(unittest.TestCase):
     def test_sentences_tagged_with_source_paragraph_and_never_merged_across_boundary(self):

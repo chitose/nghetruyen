@@ -10,8 +10,8 @@ tokenizer if mis-splits turn out to be frequent.
 """
 import re
 
-_ENDERS = re.compile(r'[.!?…]+["' + "'" + r')]*')
-_NEXT_STARTS_SENTENCE = re.compile(r'^\s+["' + "'" + r'(]?[A-ZÀ-Ỵ]', re.UNICODE)
+_ENDERS = re.compile("[.!?…]+[\"'" + "”)]*")
+_NEXT_STARTS_SENTENCE = re.compile("^\\s+[\"'" + "“(]?[A-ZÀ-Ỵ]", re.UNICODE)
 
 
 def split_into_chunks(text: str, max_len: int = 400) -> list[str]:
