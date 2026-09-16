@@ -49,6 +49,25 @@ class TestAudioPlayer(unittest.TestCase):
         played_array = mock_sd.play.call_args[0][0]
         self.assertLess(len(played_array), 16000)
 
+    @patch("audio_player.threading.Thread")
+    @patch("audio_player.sd")
+    def test_play_while_generation_stale_watcher_does_not_fire_on_finished(self, mock_sd, mock_thread):
+        # Prevent play() from starting a real background thread (mock_thread) so
+        # the only call to _watch_finish is the one we trigger manually below --
+        # this keeps the test deterministic instead of racing a real thread.
+        calls = []
+        player = AudioPlayer(on_finished=lambda: calls.append("finished"))
+        player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
+        player.play(rate=1.0)
+        stale_gen = player._generation  # what the first play()'s watcher thread captured
+        # Simulate the OLD watcher thread's sd.wait() unblocking exactly when the
+        # NEXT play() call invokes sd.stop() -- that is the real race: the old
+        # watcher wakes as a direct side effect of sd.stop(), so it matters
+        # whether self._generation was bumped before or after that call.
+        mock_sd.stop.side_effect = lambda: player._watch_finish(stale_gen)
+        player.play(rate=1.5)  # bumps generation; sd.stop() wakes the stale watcher
+        self.assertEqual(calls, [])  # must NOT have fired on_finished for the stale generation
+
     @patch("audio_player.sd")
     def test_stop_calls_sounddevice_stop(self, mock_sd):
         player = AudioPlayer(on_finished=lambda: None)

@@ -41,13 +41,13 @@ class AudioPlayer:
         self._orig_sr = sr
 
     def play(self, rate: float = 1.0, start_frame: int = 0) -> None:
+        self._generation += 1
+        gen = self._generation
         sd.stop()
         self._rate = rate
         self._offset_frames = start_frame
         self._paused = False
         self._start_time = time.monotonic()
-        self._generation += 1
-        gen = self._generation
         remaining = self._data[start_frame:]
         sd.play(remaining, samplerate=self._orig_sr * rate)
         threading.Thread(target=self._watch_finish, args=(gen,), daemon=True).start()
@@ -76,4 +76,5 @@ class AudioPlayer:
 
     def stop(self) -> None:
         sd.stop()
+        self._generation += 1
         self._paused = False
