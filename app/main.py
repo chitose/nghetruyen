@@ -15,6 +15,13 @@ Sidecar's venv when it is missing and spawns it, reporting progress to the
 startup window and then to the chrome, so startup is neither silent nor a
 manual setup step -- see docs/adr/0013-sidecar-startup-status.md and
 docs/adr/0016-app-provisions-the-sidecar-environment.md.
+
+None of this is Windows-specific any more: the settings folder, the icon's
+file format, and the startup window each come from the one module that knows
+the platform (`platform_paths`, `icon`, `splash.make_splash`), and the two
+places that genuinely were Win32 -- the tool-window style and the startup
+window -- degrade to "fewer desktop refinements" rather than to a failure.
+See docs/adr/0017-linux-launcher.md.
 """
 import sys
 import threading
@@ -30,12 +37,14 @@ from audio_player import AudioPlayer
 from config import Config
 from controller import Controller
 from docking import CONTROLS_HEIGHT, dock
+from icon import app_icon_path
 from playback import PlaybackEngine
+from platform_paths import data_dir
 from session import Session, restore_bounds, restore_dock_height, restore_hidden
 from sidecar_client import SidecarClient
 from sidecar_env import find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
-from splash import Splash
+from splash import make_splash
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
 from visualizer import Visualizer
 from window_group import as_tool_window
@@ -55,13 +64,16 @@ else:
     BUNDLE_DIR = APP_DIR
 
 WEB_DIR = BUNDLE_DIR / "web"
-# Both windows' title bars and the taskbar icon. Bundled like web/ so the
-# standalone exe has it too, and a real file on disk because both pywebview and
-# NiceGUI load it by path rather than from the bundle.
-ICON_PATH = BUNDLE_DIR / "assets" / "nghetruyen.ico"
-# The data folder keeps its original name: config.json and session.json live
-# there, and renaming it would strand an existing install's settings.
-DATA_DIR = Path.home() / "AppData" / "Roaming" / "reading-web"
+# Both windows' title bars and the taskbar icon, in the format this platform
+# reads (see icon.py). Bundled like web/ so the standalone exe has it too, and
+# a real file on disk because both pywebview and NiceGUI load it by path rather
+# than from the bundle.
+ICON_PATH = app_icon_path(BUNDLE_DIR)
+# The data folder keeps its original name on Windows: config.json and
+# session.json live there, and renaming it would strand an existing install's
+# settings. On Linux there is no such install, so this is the XDG location
+# instead -- see platform_paths.data_dir and ADR-0017.
+DATA_DIR = data_dir()
 CONFIG_PATH = DATA_DIR / "config.json"
 SESSION_PATH = DATA_DIR / "session.json"
 LOG_PATH = DATA_DIR / "nghetruyen.log"
@@ -159,7 +171,7 @@ if __name__ == "__main__":
     # First thing, because the exe unpacks and the chrome takes a moment to
     # serve: this window covers that gap with the Sidecar's status, then hands
     # over to the Controls strip. See docs/adr/0013-sidecar-startup-status.md.
-    splash = Splash(icon_path=ICON_PATH, on_warning=warn)
+    splash = make_splash(icon_path=ICON_PATH, on_warning=warn)
     splash.start()
 
     config = Config(CONFIG_PATH)

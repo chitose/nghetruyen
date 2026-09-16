@@ -1,31 +1,38 @@
 # Nghe Truyện
 
-A personal Windows app that reads Vietnamese web novels aloud, using a
+A personal app that reads Vietnamese web novels aloud, using a
 local sidecar for text-to-speech. ("Nghe Truyện" is "listen to stories".) See
 [CONTEXT.md](CONTEXT.md) for terminology and [docs/adr/](docs/adr/) for why
 it's built this way.
 
 Single user, never published (Q4) -- see [ADR-0009](docs/adr/0009-standalone-app-replaces-extension.md)
-for why this is a standalone app instead of a Chrome extension, and
-[ADR-0008](docs/adr/0008-switch-to-vieneu-tts.md) for the current TTS engine.
+for why this is a standalone app instead of a Chrome extension,
+[ADR-0008](docs/adr/0008-switch-to-vieneu-tts.md) for the current TTS engine,
+and [ADR-0017](docs/adr/0017-linux-launcher.md) for how it runs on Windows and
+Linux.
 
 ## Setup
 
 1. **Sidecar** -- nothing to do: the App creates `sidecar/venv` and installs
    its requirements on first launch, saying so on the Controls strip's status
    line ([ADR-0016](docs/adr/0016-app-provisions-the-sidecar-environment.md)).
-   Native Windows Python, no WSL2; you can still run it by hand instead
+   Native Python, no WSL2; you can still run it by hand instead
    ([sidecar/README.md](sidecar/README.md)).
-2. **App** -- see [app/README.md](app/README.md). Starts the Sidecar for you
+2. **App** -- see [app/README.md](app/README.md). On Windows that is
+   `run.bat`; on Linux it is [`run.sh`](run.sh), or
+   [`dist/linux/install.sh`](dist/linux/install.sh) to also get an entry in the
+   desktop's application list. Either way it starts the Sidecar for you
    (a small startup window covers the launch, then the Controls strip's status
    line reports how it goes, with a Retry button if it doesn't) and opens two
-   windows: the reader (a Web View) and the NiceGUI Controls window that holds
-   the Player Bar -- the strip is the reader's tool window, so Windows shows
-   them as one: a single taskbar button and a single Alt-Tab entry.
-   `run.bat` runs it from source;
+   windows: the reader (a Web View) and the Controls window that holds the
+   Player Bar -- the strip is the reader's tool window, so Windows shows them
+   as one: a single taskbar button and a single Alt-Tab entry. (On a Wayland
+   session the shell has no way to be asked that, so there the two are listed
+   separately -- [ADR-0017](docs/adr/0017-linux-launcher.md).)
+   `run.bat`/`run.sh` run it from source;
    [`app/NgheTruyen.exe`](docs/adr/0012-standalone-app-exe.md) is the same App
-   bundled into one standalone file (still needs `sidecar/`), which pushing a
-   `v*` tag builds and publishes as a GitHub Release
+   bundled into one standalone Windows file (still needs `sidecar/`), which
+   pushing a `v*` tag builds and publishes as a GitHub Release
    ([ADR-0014](docs/adr/0014-release-by-tag.md)). Its icon is baked from
    `app/assets/nghetruyen-source.png` by `app/make_icon.py`
    ([ADR-0015](docs/adr/0015-app-icon.md)).
@@ -34,6 +41,23 @@ for why this is a standalone app instead of a Chrome extension, and
    Controls window says so when it didn't. It also has a speed slider and a
    voice picker (populated live from the Sidecar's `/speakers`); both persist
    for next time.
+
+### Linux
+
+`run.sh` needs Python 3.10+ with the `venv` module, plus these system
+packages:
+
+| | Debian/Ubuntu | Arch | Fedora |
+|---|---|---|---|
+| `venv` module | `python3-venv` | (in `python`) | (in `python3`) |
+| Audio (PortAudio) | `libportaudio2` | `portaudio` | `portaudio` |
+| Web View backend | `python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1` | `python-gobject webkit2gtk-4.1` | `python3-gobject webkit2gtk4.1` |
+
+`run.sh` names the missing `venv` package itself if it cannot find an
+interpreter. The rest shows up where it matters rather than at launch: the Web
+View backend when a window is created (pywebview chooses its backend then, so
+an import alone will not catch it), and PortAudio as a message on the Controls
+strip and in `nghetruyen.log`.
 
 ## Configuration
 

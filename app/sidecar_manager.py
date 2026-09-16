@@ -7,7 +7,9 @@ terminal (ADR-0001's "started manually" cost moves up one level).
 The Sidecar is a console program, but it is never meant to show a window: a
 console-less App (pythonw, or a PyInstaller --noconsole build) would otherwise
 make Windows allocate a visible console for it. It runs with CREATE_NO_WINDOW
-and its output goes to sidecar.log instead, so startup errors stay readable.
+on Windows -- and with nothing extra elsewhere, where that problem does not
+exist (ADR-0017) -- while its output goes to sidecar.log instead, so startup
+errors stay readable.
 
 `SidecarStartup` sits on top of `SidecarManager`: it drives the launch and
 reports how it went, so the chrome can show the reader what is happening
@@ -24,6 +26,7 @@ import time
 import urllib.error
 import urllib.request
 
+import platform_paths
 import sidecar_env
 
 LOG_NAME = "sidecar.log"
@@ -52,8 +55,13 @@ MODEL_MESSAGE = "Downloading the Sidecar's voice model (first run only, about 1.
 
 
 def _hidden_window_kwargs() -> dict:
-    """Windows only: keep the Sidecar from getting its own console window."""
-    if sys.platform != "win32":
+    """Windows only: keep the Sidecar from getting its own console window.
+
+    Off Windows this returns nothing and the spawn is unchanged -- there is no
+    console to suppress, and the Sidecar's output already goes to sidecar.log
+    through the log file handle rather than through a terminal.
+    """
+    if not platform_paths.is_windows():
         return {}
     return {"creationflags": subprocess.CREATE_NO_WINDOW}
 

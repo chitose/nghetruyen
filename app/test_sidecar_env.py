@@ -8,10 +8,11 @@ import hashlib
 import sys
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 import sidecar_env
+import platform_paths
+from tempdirs import ephemeral_dir
 
 
 def ok(*_args, **_kwargs):
@@ -21,7 +22,7 @@ def ok(*_args, **_kwargs):
 
 class SidecarEnvTestCase(unittest.TestCase):
     def setUp(self):
-        self.tmp = TemporaryDirectory()
+        self.tmp = ephemeral_dir()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.sidecar = self.root / "sidecar"
@@ -72,9 +73,11 @@ class TestFindSidecarDir(SidecarEnvTestCase):
         self.assertEqual(sidecar_env.find_sidecar_dir(app), self.root / "repo" / "sidecar")
 
     def test_venv_python_is_the_venvs_launcher(self):
+        # bin/python on Linux, Scripts/python.exe on Windows (platform_paths).
+        expected = ("Scripts", "python.exe") if platform_paths.is_windows() else ("bin", "python")
         self.assertEqual(
             sidecar_env.venv_python(self.sidecar),
-            self.sidecar / "venv" / "Scripts" / "python.exe",
+            self.sidecar / "venv" / Path(*expected),
         )
 
 
@@ -84,14 +87,31 @@ class TestInterpreterDiscovery(unittest.TestCase):
         self.assertEqual(sidecar_env.find_system_python(), sys.executable)
 
     def test_a_frozen_exe_has_to_find_one_on_path(self):
-        with patch.object(sidecar_env.sys, "frozen", True, create=True), \
-                patch("sidecar_env.shutil.which", side_effect=lambda name: rf"C:\py\{name}.exe"):
+        # Which *names* are tried is platform_paths' business now; the names
+        # themselves are POSIX-shaped here on purpose, so this asserts the
+        # first one that resolves is the one returned (platform_paths checks
+        # `python` before `python3`).
+        with patch.object(sidecar_env.platform_paths.sys, "frozen", True, create=True), \
+                patch("platform_paths.shutil.which", side_effect=lambda name: rf"C:\py\{name}.exe"):
             self.assertEqual(sidecar_env.find_system_python(), r"C:\py\python.exe")
 
+    def test_a_linux_box_with_only_python3_is_still_found(self):
+        # The ordinary Debian case: no `python` at all, and that is not a
+        # broken install.
+        with patch.object(sidecar_env.platform_paths.sys, "frozen", True, create=True), \
+                patch("platform_paths.shutil.which",
+                      side_effect=lambda name: "/usr/bin/python3" if name == "python3" else None):
+            self.assertEqual(sidecar_env.find_system_python(), "/usr/bin/python3")
+
     def test_no_python_on_path_is_reported_as_none(self):
-        with patch.object(sidecar_env.sys, "frozen", True, create=True), \
-                patch("sidecar_env.shutil.which", return_value=None):
+        with patch.object(sidecar_env.platform_paths.sys, "frozen", True, create=True), \
+                patch("platform_paths.shutil.which", return_value=None):
             self.assertIsNone(sidecar_env.find_system_python())
+
+    def test_running_from_source_needs_no_python_on_path(self):
+        # ...because this process's own interpreter is used.
+        with patch("platform_paths.shutil.which", return_value=None):
+            self.assertEqual(sidecar_env.find_system_python(), sys.executable)
 
     @patch("sidecar_env.subprocess.run", side_effect=ok)
     def test_a_working_interpreter_is_usable(self, mock_run):

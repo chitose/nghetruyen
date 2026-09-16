@@ -9,3 +9,6 @@ app/dist/
 # app/NgheTruyen.spec is source, not a build artifact: PyInstaller is run on it
 # rather than with flags that would regenerate it.
 app/*.exe
+# Scratch space for local runs (a WSL-side venv, a probe script); nothing in
+# the repo needs it, and it is never part of a release.
+.subtmp/

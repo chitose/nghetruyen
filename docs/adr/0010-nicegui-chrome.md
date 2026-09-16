@@ -71,3 +71,12 @@ Sidecar and the Controls window with it.
 playback decisions are untouched. This supersedes only its assumption that the
 App's injected JS renders the Player Bar, and it adds `nicegui` to
 `app/requirements.txt`.
+
+**Amended by [ADR-0017](0017-linux-launcher.md):** the pair reads as one window
+by the same mechanism -- the strip is marked as a tool window -- but the shell
+is a different shell. On Linux `window_group.py` sets the EWMH
+`_NET_WM_STATE_SKIP_TASKBAR`/`_SKIP_PAGER` hints through `libX11` instead of
+Win32 ex-styles, and on a Wayland session there is no X11 window ID to set them
+on, so the strip keeps its own taskbar entry and the two windows are listed
+separately. Everything else above -- two windows, the dock, frameless, the
+single-source-of-truth rule -- is unchanged and platform-neutral.

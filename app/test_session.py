@@ -1,7 +1,6 @@
 import json
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from session import (
     DEFAULTS,
@@ -10,11 +9,12 @@ from session import (
     restore_dock_height,
     restore_hidden,
 )
+from tempdirs import ephemeral_dir
 
 
 class TestSession(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = TemporaryDirectory()
+        self.tmpdir = ephemeral_dir()
         self.path = Path(self.tmpdir.name) / "session.json"
 
     def tearDown(self):

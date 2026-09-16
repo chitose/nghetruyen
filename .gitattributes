@@ -1,0 +1,11 @@
+# Shell scripts run on Linux, where a CRLF would break the shebang: the kernel
+# reads `/usr/bin/env sh\r` as one word and fails with "bad interpreter". The
+# `eol=lf` here holds whatever the developer's core.autocrlf is set to, and it
+# is the reason these files can be edited on Windows and still run.
+run.sh text eol=lf
+dist/linux/run.sh text eol=lf
+dist/linux/install.sh text eol=lf
+
+# The .ico and .png are payload, not text: never let them be normalised.
+*.ico binary
+*.png binary

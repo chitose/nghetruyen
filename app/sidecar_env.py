@@ -3,7 +3,9 @@
 
 Stdlib only, and imported by `main.py` / `sidecar_manager.py` -- never by the
 Sidecar itself, which has its own venv and its own requirements (ADR-0001,
-ADR-0008).
+ADR-0008). Where a virtualenv puts its interpreter, and which names count as a
+system Python, are platform differences and live in `platform_paths.py`
+(ADR-0017).
 
 Provisioning here is what removes the last manual setup step: the App creates
 `sidecar/venv` and pip-installs `sidecar/requirements.txt` the first time it
@@ -11,14 +13,14 @@ needs it, so a fresh checkout needs no venv/pip dance by hand. See
 docs/adr/0016-app-provisions-the-sidecar-environment.md.
 """
 import hashlib
-import shutil
 import subprocess
 import sys
 import threading
 from pathlib import Path
 
+import platform_paths
+
 VENV_DIRNAME = "venv"
-VENV_PYTHON_PARTS = ("Scripts", "python.exe")  # the App is Windows-only
 REQUIREMENTS_NAME = "requirements.txt"
 MARKER_NAME = "requirements.sha256"
 
@@ -39,8 +41,12 @@ _INSTALL_LOCK = threading.Lock()
 
 def _hidden_window_kwargs() -> dict:
     """Windows only: venv and pip must not flash a console from a windowed App,
-    the same reason SidecarManager spawns uvicorn with CREATE_NO_WINDOW."""
-    if sys.platform != "win32":
+    the same reason SidecarManager spawns uvicorn with CREATE_NO_WINDOW.
+
+    Off Windows there is nothing to suppress -- a console is not allocated for
+    a child anyway -- so this returns nothing and `_step` works unchanged.
+    """
+    if not platform_paths.is_windows():
         return {}
     return {"creationflags": subprocess.CREATE_NO_WINDOW}
 
@@ -63,7 +69,7 @@ def find_sidecar_dir(app_dir: Path) -> Path:
 
 def venv_python(sidecar_dir: Path) -> Path:
     """The interpreter the App spawns uvicorn with."""
-    return sidecar_dir / VENV_DIRNAME / Path(*VENV_PYTHON_PARTS)
+    return platform_paths.venv_python(sidecar_dir / VENV_DIRNAME)
 
 
 def find_system_python() -> str | None:
@@ -72,9 +78,9 @@ def find_system_python() -> str | None:
     Running from source, this process is one -- and one is certainly present.
     The frozen exe is not: there `sys.executable` is the exe itself, so it has
     to be a Python on PATH."""
-    if not getattr(sys, "frozen", False) and sys.executable:
+    if not platform_paths.frozen() and sys.executable:
         return sys.executable
-    return shutil.which("python") or shutil.which("python3")
+    return platform_paths.python_on_path()
 
 
 def usable_python(interpreter: str) -> bool:

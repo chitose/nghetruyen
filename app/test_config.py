@@ -1,7 +1,6 @@
 import json
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from config import (
     Config,
@@ -14,11 +13,12 @@ from config import (
     DEFAULT_START_URL,
     DEFAULT_VISUALIZER_STYLE,
 )
+from tempdirs import ephemeral_dir
 
 
 class TestConfig(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = TemporaryDirectory()
+        self.tmpdir = ephemeral_dir()
         self.path = Path(self.tmpdir.name) / "config.json"
 
     def tearDown(self):

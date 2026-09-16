@@ -43,3 +43,15 @@ So "standalone" means the App: one file that runs on a machine with no Python
 and no checkout. The Sidecar remains the one external piece, found beside the
 exe or one level up (or anywhere, if you point `sidecarUrl` at one already
 running -- e.g. the Docker image).
+
+**Amended by [ADR-0017](0017-linux-launcher.md):** this exe is still the Windows
+release and nothing about it changed -- `NgheTruyen.spec` and
+`.github/workflows/release.yml` are untouched, and no Linux binary is built. On
+Linux the launch path is the source tree plus `run.sh`
+(`dist/linux/install.sh` for a desktop entry), because pywebview's Linux
+backend is a system GTK/WebKit2GTK or Qt that PyInstaller cannot bundle the way
+it bundles the WebView2 DLLs. Two things described above are now
+platform-conditional rather than fixed: `main.py` picks the `.ico` or the
+`nghetruyen-256.png` for the windows' and the chrome's icon, and the warnings
+that used to go to `%APPDATA%\reading-web\nghetruyen.log` now go to
+`$XDG_DATA_HOME/reading-web/nghetruyen.log` off Windows.

@@ -1,12 +1,18 @@
 """Tests for the self-bootstrapping launcher (app/bootstrap.py), which
 creates app/venv, installs/refreshes requirements.txt, then hands off to
-main.py -- so a compiled .exe wrapper (or run.bat) can be a single
+main.py -- so a compiled .exe wrapper (or run.bat, or run.sh) can be a single
 double-click/command.
+
+The platform-dependent parts -- which interpreter to look for on PATH, and
+where the venv puts its launcher -- are asserted against
+`platform_paths.is_windows()` rather than against the host running the tests,
+so the same assertions hold on the Linux CI job (ADR-0017).
 """
 import unittest
 from unittest.mock import patch
 
 import bootstrap
+import platform_paths
 
 
 class TestBootstrap(unittest.TestCase):
@@ -37,14 +43,14 @@ class TestBootstrap(unittest.TestCase):
         self.assertIn("pip", pip_call[0][0])
         self.assertEqual(run_call[0][0], [str(mock_venv_python), "main.py"])
 
-    @patch("bootstrap.shutil.which", return_value=r"C:\Python\python.exe")
+    @patch("platform_paths.python_on_path", return_value=r"C:\Python\python.exe")
     @patch("bootstrap._requirements_hash", return_value="new")
     @patch("bootstrap._installed_requirements_hash", return_value=None)
     @patch("bootstrap.REQUIREMENTS_MARKER")
     @patch("bootstrap.VENV_PYTHON")
     @patch("bootstrap.subprocess.run")
     def test_creates_venv_and_installs_requirements_when_missing(
-        self, mock_run, mock_venv_python, mock_marker, mock_installed, mock_hash, mock_which,
+        self, mock_run, mock_venv_python, mock_marker, mock_installed, mock_hash, mock_python,
     ):
         mock_venv_python.exists.return_value = False
         bootstrap.bootstrap()
@@ -54,16 +60,31 @@ class TestBootstrap(unittest.TestCase):
         self.assertIn("pip", pip_call[0][0])
         self.assertEqual(run_call[0][0], [str(mock_venv_python), "main.py"])
 
-    @patch("bootstrap.shutil.which", return_value=None)
+    @patch("platform_paths.python_on_path", return_value=None)
     @patch("bootstrap.VENV_PYTHON")
     @patch("bootstrap.subprocess.run")
-    def test_exits_cleanly_when_system_python_not_found(self, mock_run, mock_venv_python, mock_which):
+    def test_exits_cleanly_when_system_python_not_found(self, mock_run, mock_venv_python, _which):
         mock_venv_python.exists.return_value = False
-        with patch("builtins.input", return_value=""), patch("bootstrap.sys.exit", side_effect=SystemExit) as mock_exit:
+        with patch("builtins.input", return_value="") as mock_input, \
+                patch("bootstrap.sys.exit", side_effect=SystemExit) as mock_exit:
             with self.assertRaises(SystemExit):
                 bootstrap.bootstrap()
         mock_exit.assert_called_once_with(1)
         mock_run.assert_not_called()
+        # A double-clicked run.bat has a console to keep open; anything else
+        # (run.sh, a pipe) must not block on a TTY that is not there.
+        if platform_paths.is_windows():
+            mock_input.assert_called_once()
+        else:
+            mock_input.assert_not_called()
+
+    def test_the_venv_layout_is_the_platforms_own(self):
+        # The launcher is the thing that has to be right: bootstrap hands off
+        # to it, and a Windows path on Linux is a launcher that cannot exist.
+        expected = ("Scripts", "python.exe") if platform_paths.is_windows() else ("bin", "python")
+        self.assertEqual(
+            bootstrap.VENV_PYTHON, bootstrap.VENV_DIR.joinpath(*expected)
+        )
 
 
 if __name__ == "__main__":

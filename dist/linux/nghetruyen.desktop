@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.1
+Name=Nghe Truyện
+Comment=Read Vietnamese web novels aloud
+Comment[vi]=Đọc truyện chữ trực tuyến thành tiếng
+# install.sh rewrites Exec= to the directory it actually installed into.
+# %U is not used: the App opens its own Start URL, and takes no file argument.
+Exec=__EXEC__
+Icon=nghetruyen
+Terminal=false
+# Audio, so it belongs with players rather than under Utilities; no
+# StartupWMClass, because the App's two windows are named by pywebview and GTK
+# does not report a class the shell would match on.
+Categories=AudioVideo;Audio;Player;
+Keywords=tts;text-to-speech;novel;vietnamese;truyen;

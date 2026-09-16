@@ -9,7 +9,8 @@ and [docs/adr/0010-nicegui-chrome.md](../docs/adr/0010-nicegui-chrome.md).
 
 ## Setup
 
-Nothing to do by hand -- `run.bat` creates `app/venv` and installs
+Nothing to do by hand -- `run.bat` (Windows) or `../run.sh` (Linux) creates
+`app/venv` and installs
 `requirements.txt` itself, via `bootstrap.py`. It re-runs the install whenever
 `requirements.txt` changes, so a newly added dependency never leaves an
 existing venv silently stale. `sidecar/venv` is built the same way by the App
@@ -17,13 +18,16 @@ on first launch, which is what makes a fresh checkout a single command
 ([ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md));
 delete `sidecar/venv` to force a clean rebuild.
 
-`NgheTruyen.exe` (see below) is the other way to run it: a standalone build
-that needs none of the above, but still uses `sidecar/`.
+`NgheTruyen.exe` (see below) is the other way to run it on Windows: a
+standalone build that needs none of the above, but still uses `sidecar/`. There
+is no Linux equivalent -- see [ADR-0017](../docs/adr/0017-linux-launcher.md)
+for why, and `../dist/linux/install.sh` for the desktop entry instead.
 
 ## Run
 
 ```bash
-run.bat
+run.bat          # Windows
+./run.sh         # Linux, from the repo root
 ```
 
 First run takes a minute (setting up `venv`), and the Sidecar's own
@@ -59,7 +63,11 @@ A launch starts with a small always-on-top startup window -- the App's icon, its
 name, and one line of status. It covers the stretch where there is nothing else
 to show (the onefile exe unpacking, the chrome server coming up) and carries the
 Sidecar's status while it does, then closes as soon as the reader window is on
-screen: from there the Controls strip is the status line.
+screen: from there the Controls strip is the status line. On Windows that window
+is the Win32 one in `splash.py`; on Linux it is the tkinter one beside it,
+picked by `splash.make_splash` -- and it earns its keep more there, because a
+first Linux run builds a ~700 MB `sidecar/venv` and downloads a ~1.3 GB model
+before anything else can report progress.
 
 The Sidecar starts with the App and its startup is reported on the Controls
 strip's status line: "Starting the Sidecar…" until `/speakers` answers, then
@@ -78,9 +86,11 @@ Sidecar you start yourself is picked up too. See
 [ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md).
 
 On shutdown the App saves the Page it was on, the reader window's bounds, the
-dock height, and whether the reader was hidden, to
-`%APPDATA%\reading-web\session.json`, and restores them next launch (see
-[ADR-0011](../docs/adr/0011-restore-session-on-launch.md)). Turn "Reopen the
+dock height, and whether the reader was hidden, to `session.json` beside
+`config.json` -- `%APPDATA%\reading-web` on Windows, and
+`$XDG_DATA_HOME/reading-web` (falling back to `~/.local/share/reading-web`) on
+Linux, both from `platform_paths.data_dir()` -- and restores them next launch
+(see [ADR-0011](../docs/adr/0011-restore-session-on-launch.md)). Turn "Reopen the
 last page on launch" off in Options to always start at Start URL instead.
 
 ## How it fits together
@@ -89,6 +99,43 @@ last page on launch" off in Options to always start at Start URL instead.
 Player Bar and Options call it directly, and content.js reaches it through
 `api.py`. `ui.py` is only the NiceGUI view, and `main.py` starts the NiceGUI
 server thread, opens both windows, and wires the pieces together.
+
+`platform_paths.py` is the one module that knows which platform the App is on:
+where a venv puts its interpreter (`bin/python` or `Scripts/python.exe`), which
+names count as a system Python on PATH, and where the settings folder is
+(`data_dir()`, above). `bootstrap.py`, `sidecar_env.py`, `sidecar_manager.py`,
+`splash.py`, `window_group.py`, `icon.py` and `main.py` all ask it rather than
+deciding for themselves, which is what keeps the Windows assumptions in one
+file with one test file ([`test_platform_paths.py`](test_platform_paths.py)).
+`icon.py` is the smaller version of the same idea -- it picks the `.ico` or the
+`nghetruyen-256.png` -- and `splash.make_splash` picks the startup window. See
+[ADR-0017](../docs/adr/0017-linux-launcher.md).
+
+What genuinely stays Windows-only: `window_group.py`'s Win32 ex-styles (Linux
+uses the X11 EWMH hints instead, and gets nothing on Wayland),
+`check_windows.py`, `make_icon.py`/`check_exe_icon.py`/`refresh_icon.ps1`, and
+`NgheTruyen.spec`.
+
+### Linux
+
+The App runs on Linux from the same source tree, launched by `../run.sh` (or
+`../dist/linux/install.sh` for a desktop entry). The differences worth knowing:
+
+- pywebview uses its GTK backend rather than WebView2. `sudo apt install
+  python3-gi gir1.2-gtk-3.0 gir1.2-webkit2-4.1` (or the distro's equivalent).
+  Note that `import webview` succeeds without any of that -- pywebview picks
+  its backend when a window is created, so a missing typelib shows up as the
+  reader and Controls windows failing to open, not as an import error.
+- `sounddevice` links against PortAudio: `sudo apt install libportaudio2`.
+  A missing or refusing audio backend now surfaces as a message on the Controls
+  strip instead of a traceback on the playback thread. Because the App gets
+  speed changes by scaling the sample rate ([ADR-0003](../docs/adr/0003-sentence-chunk-contract.md)),
+  a rate the backend rejects is the failure to watch for on a PipeWire box.
+- The two windows are listed separately by the shell on Wayland: the EWMH
+  "skip taskbar" hints need an X11 window ID, which a Wayland session does not
+  have. On X11 they collapse into one entry as they do on Windows.
+- The icon is `assets/nghetruyen-256.png` rather than the `.ico`, and the
+  startup window is tkinter rather than Win32.
 
 ### Standalone `NgheTruyen.exe`
 

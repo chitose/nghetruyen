@@ -1,20 +1,23 @@
 """Self-bootstrapping launcher: creates app/venv, installs requirements.txt,
 then hands off to main.py -- so a compiled .exe wrapper (built with
-PyInstaller, see app/README.md) or run.bat is a single double-click/command
-instead of a manual venv/pip dance.
+PyInstaller, see app/README.md), run.bat, or run.sh is a single
+double-click/command instead of a manual venv/pip dance.
 
 The install also re-runs whenever requirements.txt changes (e.g. a new
 dependency is added), not just on first run -- otherwise an existing venv
 silently keeps missing the new package.
 
 Runs under a real system Python (found via PATH), not the app's own venv --
-that venv doesn't exist yet on first run, which is the whole point.
+that venv doesn't exist yet on first run, which is the whole point. Which
+names count as "a system Python", and where the venv puts its interpreter,
+differ per platform and live in `platform_paths.py` (ADR-0017).
 """
 import hashlib
-import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import platform_paths
 
 if getattr(sys, "frozen", False):
     # Running as a PyInstaller-compiled .exe -- sys.executable is the exe itself.
@@ -23,7 +26,7 @@ else:
     APP_DIR = Path(__file__).resolve().parent
 
 VENV_DIR = APP_DIR / "venv"
-VENV_PYTHON = VENV_DIR / "Scripts" / "python.exe"
+VENV_PYTHON = platform_paths.venv_python(VENV_DIR)
 REQUIREMENTS = APP_DIR / "requirements.txt"
 # Written after a successful install. A mismatch means requirements.txt changed
 # since, so the venv needs refreshing.
@@ -52,17 +55,22 @@ def _install_requirements() -> None:
 def bootstrap() -> None:
     created = False
     if not VENV_PYTHON.exists():
-        system_python = shutil.which("python")
+        system_python = platform_paths.python_on_path()
         if not system_python:
             print(
-                "Python was not found on PATH. Install Python 3.11+ from "
-                "https://python.org and try again.",
+                f"Python was not found on PATH. {platform_paths.python_install_hint()}",
                 file=sys.stderr,
             )
-            input("Press Enter to close...")
+            # Only a double-clicked run.bat has a console to keep open; under
+            # run.sh (or a pipe) this would just hang waiting on a TTY.
+            if platform_paths.is_windows():
+                input("Press Enter to close...")
             sys.exit(1)
         print("First run -- setting up app/venv, this takes a minute...")
-        subprocess.run([system_python, "-m", "venv", str(VENV_DIR)], check=True, cwd=APP_DIR)
+        subprocess.run(
+            platform_paths.create_venv_argv(system_python, VENV_DIR),
+            check=True, cwd=APP_DIR,
+        )
         created = True
 
     if created or _installed_requirements_hash() != _requirements_hash():

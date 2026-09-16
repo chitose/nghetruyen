@@ -10,6 +10,11 @@ The last one is the point of `test_the_icon_is_not_stale`: replacing
 `nghetruyen-source.png` and forgetting to re-run make_icon.py is a silent
 mistake, since the taskbar just keeps showing the old mark.
 
+`TestIconSelection` is the one part that is not about pixels: which of the two
+files `main.py` hands pywebview and NiceGUI is a platform question
+(ADR-0017), and on Linux it has to be the PNG -- GTK can be built without an
+ICO loader, which fails at window creation instead of falling back.
+
 The size check reads the .ico's bytes directly and so runs anywhere. The rest
 need Pillow, which only the Sidecar's venv has -- run those with
 `sidecar\\venv\\Scripts\\python.exe -m unittest test_icon` from this directory.
@@ -17,6 +22,10 @@ need Pillow, which only the Sidecar's venv has -- run those with
 import struct
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import icon
+import platform_paths
 
 try:
     from PIL import Image
@@ -37,6 +46,52 @@ EXPECTED_SIZES = {16, 24, 32, 48, 64, 128, 256}
 needs_pillow = unittest.skipUnless(
     Image is not None, "needs Pillow: run this with the Sidecar's venv",
 )
+
+
+def png_size(path: Path) -> tuple:
+    """(width, height) from a PNG's IHDR, with no Pillow needed."""
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise AssertionError(f"{path.name} is not a PNG")
+    return struct.unpack(">II", data[16:24])
+
+
+class TestIconSelection(unittest.TestCase):
+    """Which icon file the platform gets -- see ADR-0017."""
+
+    BUNDLE = Path("/bundle")
+
+    def test_windows_gets_the_ico(self):
+        with patch("platform_paths.is_windows", return_value=True):
+            self.assertEqual(
+                icon.app_icon_path(self.BUNDLE),
+                self.BUNDLE / "assets" / "nghetruyen.ico",
+            )
+
+    def test_linux_gets_the_png(self):
+        with patch("platform_paths.is_windows", return_value=False):
+            self.assertEqual(
+                icon.app_icon_path(self.BUNDLE),
+                self.BUNDLE / "assets" / "nghetruyen-256.png",
+            )
+
+    def test_this_hosts_choice_is_the_platforms_own(self):
+        parts = icon.ICO_PARTS if platform_paths.is_windows() else icon.PNG_PARTS
+        self.assertEqual(icon.app_icon_path(self.BUNDLE), self.BUNDLE.joinpath(*parts))
+
+    def test_both_choices_exist_on_disk(self):
+        # A path that is not there fails at window creation, which is exactly
+        # the failure the selection is meant to avoid.
+        here = Path(__file__).parent
+        for parts in (icon.ICO_PARTS, icon.PNG_PARTS):
+            self.assertTrue(here.joinpath(*parts).is_file(), f"missing {parts[-1]}")
+
+    def test_the_png_is_the_256px_mark_its_name_claims(self):
+        # Tk's splash subsamples it down to ICON_SIZE, so it has to be larger
+        # than that and square.
+        width, height = png_size(PREVIEW_PATH)
+        self.assertEqual(width, height)
+        self.assertGreaterEqual(width, 128)
 
 
 def declared_sizes() -> set:

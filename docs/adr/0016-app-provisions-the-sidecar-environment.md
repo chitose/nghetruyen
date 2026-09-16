@@ -72,3 +72,12 @@ Consequences worth knowing:
   localhost is really supported, as before; `SidecarManager` is unchanged there.
 - Quitting the App while pip runs leaves that pip to finish on its own, and the
   marker is written by the App, so the next launch installs again.
+
+**Amended by [ADR-0017](0017-linux-launcher.md):** "a Python 3.10+ on PATH" is
+now platform-specific -- `python` on Windows, `python3` on Linux -- and the
+`venv` module has to be installed there (`python3-venv` on Debian and Ubuntu),
+which `run.sh` checks for before it hands off. The venv's interpreter is
+`venv/Scripts/python.exe` on Windows and `venv/bin/python` elsewhere; both come
+from `platform_paths.venv_python()`. Nothing else here changes: the marker, the
+idempotent pip, the 15-minute first-run wait, and the log file are all
+platform-neutral, and the venv/pip output still goes to `sidecar/sidecar.log`.

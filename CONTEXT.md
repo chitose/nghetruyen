@@ -1,7 +1,7 @@
 # Nghe Truyện
 
-A personal Windows app that reads Vietnamese web novels aloud, with a local
-sidecar process doing the speech synthesis.
+An app that reads Vietnamese web novels aloud, with a local sidecar process
+doing the speech synthesis.
 
 ## Language
 
@@ -26,7 +26,8 @@ part of the App; the App talks to it over HTTP on localhost.
 _Avoid_: Server, backend, daemon, service
 
 **App**:
-The standalone Windows program (see ADR-0009) that shows Pages in a Web View,
+The standalone program (see ADR-0009, and ADR-0017 for it running on Windows
+and Linux) that shows Pages in a Web View,
 runs its own Chrome (see ADR-0010) in a second window, spawns and owns the
 Sidecar's lifecycle, and holds all playback state, settings, and Adapters.
 Replaced the Chrome extension.

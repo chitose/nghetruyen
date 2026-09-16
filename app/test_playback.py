@@ -122,6 +122,29 @@ class TestPlaybackEngine(unittest.TestCase):
         self.assertIn("ERROR", types)
         self.assertIn("Sidecar unreachable", self.events[[e["type"] for e in self.events].index("ERROR")]["message"])
 
+    def test_an_audio_device_that_refuses_to_play_is_reported_not_raised(self):
+        # sounddevice raises PortAudioError with no output device, no
+        # libportaudio, or a rate the backend rejects -- which on Linux is a
+        # PipeWire question, not a hypothetical (ADR-0017). It used to escape
+        # this thread and end the App.
+        self.audio.play.side_effect = RuntimeError("Error opening OutputStream: Invalid sample rate")
+        self.engine.play_current()
+        types = [e["type"] for e in self.events]
+        self.assertIn("ERROR", types)
+        message = self.events[types.index("ERROR")]["message"]
+        self.assertIn("Could not play audio", message)
+        self.assertIn("Invalid sample rate", message)
+        # ...and it must not claim to be playing.
+        self.assertEqual(self.events[-1], {"type": "PLAYBACK_STATE", "state": "paused"})
+        self.assertFalse(self.engine._playing)
+
+    def test_a_failing_audio_load_is_reported_too(self):
+        # load() decodes with soundfile, so a truncated WAV surfaces here.
+        self.audio.load.side_effect = RuntimeError("Error opening file: unknown format")
+        self.engine.play_current()
+        message = [e for e in self.events if e["type"] == "ERROR"][-1]["message"]
+        self.assertIn("Could not play audio", message)
+
 
 if __name__ == "__main__":
     unittest.main()

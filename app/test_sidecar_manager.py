@@ -3,7 +3,6 @@ import subprocess
 import sys
 import unittest
 import urllib.error
-from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from sidecar_manager import (
@@ -18,6 +17,7 @@ from sidecar_manager import (
     SidecarManager,
     SidecarStartup,
 )
+from tempdirs import ephemeral_dir
 
 
 class FakeManager:
@@ -64,7 +64,7 @@ class FakeManager:
 
 class TestSidecarManager(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = TemporaryDirectory()
+        self.tmpdir = ephemeral_dir()
         self.log_path = os.path.join(self.tmpdir.name, "sidecar.log")
         self._managers = []
         # Nothing is listening unless a test says otherwise, so start() spawns.

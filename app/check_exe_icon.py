@@ -9,11 +9,13 @@ Prints every RT_ICON image the exe carries and whether its bytes match
 NgheTruyen.spec could be wrong -- a missing file, a stale asset, a build that
 skipped the resource step -- and nothing else would say so: the exe would just
 show a generic icon in the taskbar.
+
+Windows-only tooling for a Windows-only artifact (ADR-0012, ADR-0017), and
+`pefile` is imported where it is used rather than at the top, so that this file
+is still importable -- and collectable by `unittest discover` -- on Linux.
 """
 import sys
 from pathlib import Path
-
-import pefile
 
 HERE = Path(__file__).parent
 RT_ICON = 3
@@ -27,6 +29,8 @@ def embedded_icons(exe: Path):
     are the PNG signature, of a DIB one its header -- so the sizes come from the
     RT_GROUP_ICON directory that sits beside the images.
     """
+    import pefile
+
     pe = pefile.PE(str(exe), fast_load=True)
     pe.parse_data_directories(
         directories=[pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_RESOURCE"]],

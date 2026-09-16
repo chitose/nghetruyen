@@ -54,3 +54,8 @@ baked-in `DEFAULT_ADAPTERS` a fresh extension install would.
 bar are no longer injected into the Page. They are a NiceGUI app in a second
 window, and `app/api.py` is now only the extraction bridge content.js calls.
 Everything above about the Python host owning playback state still holds.
+
+**Amended by [ADR-0017](0017-linux-launcher.md):** "a single Windows program" is
+now "Windows and Linux". `pywebview` remains the Web View -- on Linux it is
+pywebview's GTK backend rather than WebView2 -- and `sounddevice` is still how
+audio plays, now with the platform's PortAudio to link against.

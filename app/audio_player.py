@@ -54,7 +54,14 @@ class AudioPlayer:
         threading.Thread(target=self._watch_finish, args=(gen,), daemon=True).start()
 
     def _watch_finish(self, gen: int) -> None:
-        sd.wait()
+        # A PortAudio failure here has nowhere to go but the log/status line,
+        # and it must not leave playback stuck on "playing" for a chunk that
+        # never finished -- so it is treated as a finish, exactly like
+        # sd.stop() interrupting the wait.
+        try:
+            sd.wait()
+        except Exception:
+            pass
         if gen == self._generation and not self._paused:
             self.on_finished()
 

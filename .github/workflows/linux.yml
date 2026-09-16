@@ -1,0 +1,118 @@
+# Runs the App's tests on Linux, so the platform-dependent code paths are
+# actually exercised somewhere. See docs/adr/0017-linux-launcher.md.
+#
+# Deliberately separate from release.yml, which builds and publishes
+# NgheTruyen.exe on a windows-latest runner: that pipeline is untouched by the
+# Linux port, and this one neither builds nor publishes anything.
+#
+# No desktop session here -- ubuntu-latest is headless -- so xvfb is started
+# for anything that touches a display. `verify imports` is a real step rather
+# than an assumption, and it checks the typelibs rather than only the Python
+# package, because importing `webview` does not select a backend by itself --
+# that happens when a window is created, where a missing Gtk/WebKit2 typelib
+# would be a confusing failure deep in a test.
+#
+# The Sidecar's own venv is never built, because its tests mock pip -- the
+# whole point of ADR-0016's provisioning is that a test run does not install
+# ~700 MB of packages.
+name: Linux
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        # The App's tests import each other as top-level modules, so everything
+        # runs from app/ -- the same rule release.yml uses.
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+
+      # libportaudio2 is what sounddevice wraps; PyGObject and the two typelibs
+      # are pywebview's GTK backend. None of them are on PyPI, so apt is the
+      # only way to get them.
+      - name: Install the system packages the App links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libportaudio2 \
+            python3-gi \
+            gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.1 \
+            xvfb
+
+      - name: Install the App's dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      # test_icon.py's image checks need Pillow, which is in the Sidecar's
+      # requirements rather than the App's (see app/README.md); installing it
+      # here is what lets those run instead of skipping.
+      - name: Install Pillow for the icon tests
+        run: python -m pip install pillow
+
+      - name: Verify the imports and typelibs the App cannot start without
+        run: |
+          python - <<'PY'
+          import gi
+          import sounddevice, soundfile, nicegui, numpy, webview
+
+          # `import webview` alone proves nothing: pywebview picks its backend
+          # when a window is created. The typelibs are what have to be present.
+          for namespace, version in (("Gtk", "3.0"), ("WebKit2", "4.1")):
+              gi.require_version(namespace, version)
+              __import__("gi.repository", fromlist=[namespace])
+              print(f"{namespace} {version}: ok")
+
+          print("PortAudio:", sounddevice.get_portaudio_version()[1])
+          print("all imports ok")
+          PY
+
+      # sounddevice imports fine without a sound device, so ask it directly.
+      - name: Verify PortAudio reports a host API
+        run: |
+          python -c "import sounddevice as sd; print(sd.query_hostapis())"
+
+      - name: Run the tests
+        run: xvfb-run -a python -m unittest discover -s . -p "test_*.py" -v
+
+      # The launchers are the point of this workflow's port, so at least prove
+      # the entry points are runnable and self-consistent.
+      - name: Check the shell launchers parse
+        working-directory: .
+        run: |
+          sh -n run.sh
+          sh -n dist/linux/run.sh
+          sh -n dist/linux/install.sh
+
+      - name: Check run.sh fails clearly when there is no interpreter
+        working-directory: .
+        run: |
+          # run.sh's only real job is finding a Python and saying so when it
+          # cannot. A bare PATH -- coreutils is installed everywhere, so /usr
+          # will not do -- proves it exits 1 naming the package to install,
+          # rather than a traceback or a silent success. `dirname` is the one
+          # command run.sh itself needs before it can give up.
+          bare=$PWD/.bare_bin
+          rm -rf "$bare"; mkdir -p "$bare"
+          ln -s "$(command -v dirname)" "$bare/dirname"
+          status=0
+          out=$(env -i PATH="$bare" HOME="$HOME" /bin/sh ./run.sh 2>&1 < /dev/null) || status=$?
+          rm -rf "$bare"
+          echo "$out"
+          test "$status" -eq 1
+          echo "$out" | grep -q "python3-venv"

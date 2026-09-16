@@ -87,8 +87,22 @@ class PlaybackEngine:
         with self._lock:
             if gen != self._generation:
                 return  # superseded while waiting on synthesis
-            self._audio.load(wav_bytes)
-            self._audio.play(rate=self._rate)
+            try:
+                self._audio.load(wav_bytes)
+                self._audio.play(rate=self._rate)
+            except Exception as err:
+                # sounddevice raises PortAudioError when there is no usable
+                # output device -- a box with no sound server, a missing
+                # libportaudio, or a sample rate the backend refuses (the App
+                # gets speed by scaling the rate, see audio_player). That used
+                # to escape this thread and end the App; it belongs on the same
+                # status line as a failed Sidecar request.
+                self._playing = False
+                self._notify({"type": "ERROR", "message": f"Could not play audio: {err}"})
+                # ...and leave the App paused rather than claiming to play a
+                # chunk that never started.
+                self._notify({"type": "PLAYBACK_STATE", "state": "paused"})
+                return
             self._playing = True
         self._notify({"type": "PLAYBACK_STATE", "state": "playing"})
 
