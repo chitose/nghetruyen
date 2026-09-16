@@ -100,6 +100,17 @@ Player Bar and Options call it directly, and content.js reaches it through
 `api.py`. `ui.py` is only the NiceGUI view, and `main.py` starts the NiceGUI
 server thread, opens both windows, and wires the pieces together.
 
+`chunker.py` turns one Paragraph into the Chunks the Sidecar is asked for, and
+tags each with the Paragraph it came from. It is a dependency-free port of a
+recursive character splitter (see the module docstring for the gist): the best
+available Separator cuts the text -- line break, then sentence end, then clause,
+then word -- and the pieces are merged back up to 400 characters, so a Chunk is
+sentence-aligned but usually holds several sentences and never spans two
+Paragraphs. `chunker.split_into_chunks` is also the reason a long sentence is
+never cut mid-word: the word level is only reached when every punctuation level
+above it is absent. Nothing here is configurable; the Options that exist are the
+Paragraph-level ones below.
+
 `platform_paths.py` is the one module that knows which platform the App is on:
 where a venv puts its interpreter (`bin/python` or `Scripts/python.exe`), which
 names count as a system Python on PATH, and where the settings folder is
@@ -110,6 +121,13 @@ file with one test file ([`test_platform_paths.py`](test_platform_paths.py)).
 `icon.py` is the smaller version of the same idea -- it picks the `.ico` or the
 `nghetruyen-256.png` -- and `splash.make_splash` picks the startup window. See
 [ADR-0017](../docs/adr/0017-linux-launcher.md).
+
+`audio_player.py` keeps one output stream open and queues each Chunk into it as
+samples, so the next chunk follows the current one without the device being
+reopened -- playing a chunk per `sd.play()` cost 94-130 ms of silence at every
+boundary, measured, because `sd.wait()` returns one output latency before the
+audio has actually been heard. Each chunk's last 5 ms is faded to zero so the
+join cannot click. See [ADR-0018](../docs/adr/0018-streaming-chunk-playback.md).
 
 What genuinely stays Windows-only: `window_group.py`'s Win32 ex-styles (Linux
 uses the X11 EWMH hints instead, and gets nothing on Wayland),

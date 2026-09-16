@@ -175,5 +175,9 @@ class PlaybackEngine:
             target = next(i for i, c in enumerate(chunks) if c["paragraphIndex"] == target_paragraph)
             self._index = target
             self._generation += 1
-        self._audio.stop()
+        # Fade the chunk being abandoned out and drop anything queued behind it
+        # without closing the output stream: the target chunk is queued into
+        # that same stream a moment from now, and reopening it would put the
+        # same gap between two chunks that the join is supposed to have none of.
+        self._audio.skip_to()
         self.play_current()

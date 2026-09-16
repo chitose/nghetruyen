@@ -46,6 +46,17 @@ class TestPlaybackEngine(unittest.TestCase):
         self.engine.skip(1)
         self.assertEqual(self.engine._index, 2)  # first chunk of paragraph 1
 
+    def test_skip_keeps_the_output_stream_open(self):
+        # skip() used to call audio.stop(), which closed the device. The
+        # jumped-to chunk is queued into that same stream a moment later, and
+        # reopening it there would put a gap between two chunks that the
+        # streaming player exists to remove (ADR-0018).
+        self.engine._index = 0
+        self.audio.reset_mock()  # setUp's load_chapter legitimately stopped audio
+        self.engine.skip(1)
+        self.audio.skip_to.assert_called_once()
+        self.audio.stop.assert_not_called()
+
     def test_skip_past_start_or_end_is_a_noop(self):
         self.engine._index = 0
         self.engine.skip(-1)
