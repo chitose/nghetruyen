@@ -1,9 +1,9 @@
 # Nghe Truyện
 
 A personal Windows app that reads Vietnamese web novels aloud, using a
-local sidecar for text-to-speech. ("Nghe Truyện" is "listen to stories"; the
-repository directory is still `reading-web`.) See [CONTEXT.md](CONTEXT.md) for terminology
-and [docs/adr/](docs/adr/) for why it's built this way.
+local sidecar for text-to-speech. ("Nghe Truyện" is "listen to stories".) See
+[CONTEXT.md](CONTEXT.md) for terminology and [docs/adr/](docs/adr/) for why
+it's built this way.
 
 Single user, never published (Q4) -- see [ADR-0009](docs/adr/0009-standalone-app-replaces-extension.md)
 for why this is a standalone app instead of a Chrome extension, and
