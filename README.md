@@ -70,3 +70,20 @@ By design, not by oversight -- see the ADRs for why:
 - No real readability library for the generic fallback -- a naive score-and-
   pick heuristic (ADR-0006). Sites read often enough to be annoying get a
   proper Adapter instead of a smarter heuristic.
+
+## Credits
+
+The voice is [VieNeu-TTS](https://github.com/pnnbao97/VieNeu-TTS), the engine
+the Sidecar wraps and the App would not exist without
+([ADR-0008](docs/adr/0008-switch-to-vieneu-tts.md)). If you use it, cite it:
+
+```bibtex
+@misc{vieneutts2026,
+  title        = {VieNeu-TTS: Advanced Vietnamese Text-to-Speech with Instant Voice Cloning},
+  author       = {Pham Nguyen Ngoc Bao},
+  year         = {2026},
+  publisher    = {Hugging Face},
+  howpublished = {\url{https://huggingface.co/pnnbao-ump/VieNeu-TTS}}
+}
+```
+
