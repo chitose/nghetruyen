@@ -1,0 +1,4 @@
+pywebview
+sounddevice
+soundfile
+numpy
