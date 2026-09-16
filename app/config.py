@@ -1,8 +1,8 @@
 """Persistent settings (adapters, voice, speed, Sidecar URL) as one JSON file
 at %APPDATA%\\reading-web\\config.json -- the folder predates the App's name
-and is kept so existing settings survive the rename. Replaces
-extension/defaults.js and
-chrome.storage.sync. See docs/adr/0009-standalone-app-replaces-extension.md.
+and is kept so existing settings survive the rename. Replaces the retired
+Chrome extension's defaults.js and chrome.storage.sync. See
+docs/adr/0009-standalone-app-replaces-extension.md.
 """
 import json
 from pathlib import Path

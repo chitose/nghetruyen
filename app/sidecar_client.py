@@ -1,6 +1,6 @@
 """HTTP client for the Sidecar's two endpoints (sidecar/server.py). Runs in
-the Python host, not page-context JS -- unlike the old content script, there
-is no Private Network Access restriction to work around here.
+the Python host, not page-context JS -- unlike a content script, there is no
+Private Network Access restriction to work around here.
 """
 import json
 import urllib.request

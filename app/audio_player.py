@@ -1,7 +1,8 @@
-"""Plays synthesized WAV audio via sounddevice. Replaces offscreen.js's
-<audio> element (ADR-0002) -- this class lives in the Python host, which
-survives page navigation on its own, so there is no offscreen-document
-equivalent to build (see docs/adr/0009-standalone-app-replaces-extension.md).
+"""Plays synthesized WAV audio via sounddevice. Replaces the retired
+extension's offscreen.js <audio> element (ADR-0002) -- this class lives in the
+Python host, which survives page navigation on its own, so there is no
+offscreen-document equivalent to build
+(see docs/adr/0009-standalone-app-replaces-extension.md).
 
 Rate changes are done by playing at samplerate * rate -- sounddevice's own
 resampling-via-samplerate trick -- not a real time-stretch. This keeps rate

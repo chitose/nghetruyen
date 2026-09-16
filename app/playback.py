@@ -1,9 +1,9 @@
 # app/playback.py
 """Owns chapter playback: the prefetch cache, current index, and playback
-state -- ported from extension/offscreen.js, minus the multi-tab guard
-(activeSessionId vs chapterSessionId) that only made sense when many Chrome
-tabs could share one offscreen document. A single-window app has no "other
-tabs" to guard against (docs/adr/0009-standalone-app-replaces-extension.md).
+state -- ported from the retired extension's offscreen.js, minus the multi-tab
+guard (activeSessionId vs chapterSessionId) that only made sense when many
+Chrome tabs could share one offscreen document. A single-window app has no
+"other tabs" to guard against (docs/adr/0009-standalone-app-replaces-extension.md).
 """
 import threading
 from concurrent.futures import ThreadPoolExecutor

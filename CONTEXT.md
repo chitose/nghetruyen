@@ -1,6 +1,6 @@
 # Nghe Truyện
 
-A personal Chrome extension that reads Vietnamese web novels aloud, with a local
+A personal Windows app that reads Vietnamese web novels aloud, with a local
 sidecar process doing the speech synthesis.
 
 ## Language

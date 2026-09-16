@@ -6,10 +6,10 @@ See ../docs/adr/0001-local-sidecar-for-tts.md and
 ../docs/adr/0008-switch-to-vieneu-tts.md for why this exists and why VieNeu.
 
 Speed is NOT handled here -- see docs/adr/0003-sentence-chunk-contract.md.
-The extension applies playbackRate itself. This endpoint always synthesizes
-at VieNeu's normal speed.
+The App applies playbackRate itself. This endpoint always synthesizes at
+VieNeu's normal speed.
 
-The voice is chosen by the extension's options page and sent per request; this
+The voice is chosen by the App's Options page and sent per request; this
 file's DEFAULT_SPEAKER is only the fallback when no speaker is given (e.g.
 testing this server directly with curl).
 """

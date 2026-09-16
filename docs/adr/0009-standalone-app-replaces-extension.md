@@ -1,5 +1,10 @@
 # A standalone Windows app replaces the Chrome extension; the App owns audio directly
 
+**Amended:** the `extension/` this replaced has since been deleted -- the App
+carried real reading sessions end to end, which is the condition below for
+keeping it around. Its history is in git, and what it did is in ADR-0001 through
+ADR-0008 plus the ported code in `app/`. Everything else here still holds.
+
 The extension is retired. In its place: a single Windows program (the App) built
 on `pywebview` (WebView2), spawning the Sidecar as a child process instead of
 requiring a manual terminal ([ADR-0001](0001-local-sidecar-for-tts.md)'s "started

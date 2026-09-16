@@ -1,5 +1,5 @@
-"""Sentence splitter -- ported from extension/chunker.js. See
-docs/adr/0009-standalone-app-replaces-extension.md: chunking moves entirely
+"""Sentence splitter -- ported from the retired Chrome extension's chunker.js.
+See docs/adr/0009-standalone-app-replaces-extension.md: chunking moves entirely
 into the Python host, so the injected JS no longer needs this at all.
 
 ponytail: naive -- doesn't handle real abbreviations ("T.S.", "1.5") or
