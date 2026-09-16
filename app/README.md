@@ -106,6 +106,15 @@ exe back and reports whether its icon resources match the asset:
 venv\Scripts\python.exe check_exe_icon.py
 ```
 
+A rebuild writes a new exe over the old one, and Explorer caches icons by path,
+so it can keep showing the previous icon even though the new one is in the file.
+`refresh_icon.ps1` clears that cache -- it stops and restarts Explorer, so it
+needs elevation:
+
+```bat
+powershell -ExecutionPolicy Bypass -File refresh_icon.ps1
+```
+
 It is `--windowed`, so there is no console. Warnings that would have gone
 there -- the Sidecar failing to start, the chrome not coming up -- are appended
 to `%APPDATA%\reading-web\nghetruyen.log`.
