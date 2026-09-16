@@ -75,6 +75,6 @@ class AudioPlayer:
         self.play(rate=self._rate, start_frame=self._offset_frames)
 
     def stop(self) -> None:
-        sd.stop()
         self._generation += 1
+        sd.stop()
         self._paused = False

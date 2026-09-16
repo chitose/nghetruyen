@@ -76,6 +76,21 @@ class TestAudioPlayer(unittest.TestCase):
         player.stop()
         self.assertGreaterEqual(mock_sd.stop.call_count, 2)
 
+    @patch("audio_player.threading.Thread")
+    @patch("audio_player.sd")
+    def test_stop_while_generation_stale_watcher_does_not_fire_on_finished(self, mock_sd, mock_thread):
+        # Same race as the play() test above, but for stop(): the watcher thread
+        # from the original play() call wakes as a direct side effect of stop()'s
+        # own sd.stop() call, so _generation must already be bumped by then.
+        calls = []
+        player = AudioPlayer(on_finished=lambda: calls.append("finished"))
+        player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
+        player.play(rate=1.0)
+        stale_gen = player._generation
+        mock_sd.stop.side_effect = lambda: player._watch_finish(stale_gen)
+        player.stop()  # bumps generation; sd.stop() wakes the stale watcher
+        self.assertEqual(calls, [])  # must NOT have fired on_finished for the stale generation
+
 
 if __name__ == "__main__":
     unittest.main()
