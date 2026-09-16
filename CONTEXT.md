@@ -1,4 +1,4 @@
-# Reading Web
+# Nghe Truyện
 
 A personal Chrome extension that reads Vietnamese web novels aloud, with a local
 sidecar process doing the speech synthesis.
@@ -26,14 +26,21 @@ part of the App; the App talks to it over HTTP on localhost.
 _Avoid_: Server, backend, daemon, service
 
 **App**:
-The standalone Windows program (see ADR-0009) that embeds a Web View to
-display Pages, spawns and owns the Sidecar's lifecycle, and holds all
-playback state, settings, and Adapters. Replaced the Chrome extension.
+The standalone Windows program (see ADR-0009) that shows Pages in a Web View,
+runs its own Chrome (see ADR-0010) in a second window, spawns and owns the
+Sidecar's lifecycle, and holds all playback state, settings, and Adapters.
+Replaced the Chrome extension.
 _Avoid_: Extension, client, program
 
+**Chrome**:
+The App's own UI around the Page: the address bar, the Player Bar, and the
+Options page. Built with NiceGUI -- the bars in the Controls window, Options in
+the reader window -- and never injected into a Page.
+_Avoid_: UI, shell, frame
+
 **Player Bar**:
-The floating control surface the App overlays on a Page: playback, position,
-and voice controls. The only UI the App owns.
+The playback surface in the App's Chrome: play/pause, position, voice, and
+speed controls. Not overlaid on the Page.
 _Avoid_: Widget, overlay, HUD, controls, toolbar
 
 **Paragraph**:

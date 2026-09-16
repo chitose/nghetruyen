@@ -1,5 +1,5 @@
 import unittest
-from chunker import split_into_chunks, build_paragraph_chunks
+from chunker import build_paragraph_chunks, join_short_paragraphs, split_into_chunks
 
 
 class TestSplitIntoChunks(unittest.TestCase):
@@ -42,6 +42,41 @@ class TestSplitIntoChunks(unittest.TestCase):
             split_into_chunks('She said "go." Then left.'),
             ['She said "go."', 'Then left.'],
         )
+
+
+class TestJoinShortParagraphs(unittest.TestCase):
+    def test_a_short_paragraph_joins_the_next_one(self):
+        self.assertEqual(
+            join_short_paragraphs(["Ngắn thôi.", "Đây là một đoạn dài hơn nhiều từ."], 6),
+            ["Ngắn thôi. Đây là một đoạn dài hơn nhiều từ."],
+        )
+
+    def test_a_long_paragraph_is_left_alone(self):
+        self.assertEqual(
+            join_short_paragraphs(["Một đoạn dài đủ số từ cần thiết.", "Ngắn."], 5),
+            ["Một đoạn dài đủ số từ cần thiết.", "Ngắn."],
+        )
+
+    def test_a_run_of_short_paragraphs_keeps_joining_until_long_enough(self):
+        self.assertEqual(
+            join_short_paragraphs(["a b", "c d", "e f", "g h"], 5),
+            ["a b c d e f", "g h"],
+        )
+
+    def test_joined_paragraphs_are_separated_by_one_space(self):
+        self.assertEqual(
+            join_short_paragraphs(["one", "two three four five"], 6),
+            ["one two three four five"],
+        )
+
+    def test_blank_paragraphs_are_dropped(self):
+        self.assertEqual(join_short_paragraphs(["", "   ", "a b c"], 3), ["a b c"])
+
+    def test_a_trailing_short_paragraph_is_kept(self):
+        self.assertEqual(join_short_paragraphs(["a b c", "d"], 5), ["a b c d"])
+
+    def test_a_threshold_of_one_leaves_paragraphs_alone(self):
+        self.assertEqual(join_short_paragraphs(["a", "b"], 1), ["a", "b"])
 
 
 class TestBuildParagraphChunks(unittest.TestCase):

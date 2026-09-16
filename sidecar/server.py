@@ -14,6 +14,7 @@ file's DEFAULT_SPEAKER is only the fallback when no speaker is given (e.g.
 testing this server directly with curl).
 """
 import io
+import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,7 +42,10 @@ def load_model():
     global _tts
     from vieneu import Vieneu
 
-    _tts = Vieneu(mode="v3nano")
+    # Set by the app's Options screen (backendModel setting) -- see
+    # app/sidecar_manager.py, which passes this along when spawning us.
+    mode = os.environ.get("TTS_BACKEND_MODEL")
+    _tts = Vieneu(mode=mode) if mode else Vieneu()
 
 
 class SynthesizeRequest(BaseModel):

@@ -61,6 +61,23 @@ class AudioPlayer:
         elapsed = time.monotonic() - self._start_time
         return int(elapsed * self._orig_sr * self._rate)
 
+    @property
+    def sample_rate(self) -> int:
+        return self._orig_sr
+
+    def current_samples(self, count: int):
+        """`count` mono samples starting at the playback position right now, or
+        None when nothing is playing. Feeds the audio visualizer."""
+        if self._data is None or self._paused or self._start_time is None:
+            return None
+        start = self._offset_frames + self._played_frames()
+        segment = self._data[start:start + count]
+        if len(segment) < count:
+            return None
+        if segment.ndim > 1:
+            segment = segment.mean(axis=1)
+        return segment
+
     def set_rate(self, rate: float) -> None:
         if self._data is None or self._paused or self._start_time is None:
             self._rate = rate

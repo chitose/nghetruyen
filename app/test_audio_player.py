@@ -94,6 +94,35 @@ class TestAudioPlayer(unittest.TestCase):
         player.stop()
         self.assertGreaterEqual(mock_sd.stop.call_count, 2)
 
+    @patch("audio_player.sd")
+    def test_current_samples_returns_the_window_being_played(self, mock_sd):
+        player = AudioPlayer(on_finished=lambda: None)
+        player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
+        with patch("audio_player.time.monotonic", return_value=0.0):
+            player.play(rate=1.0)
+            samples = player.current_samples(1024)
+        self.assertIsNotNone(samples)
+        self.assertEqual(len(samples), 1024)
+        self.assertEqual(player.sample_rate, 16000)
+
+    @patch("audio_player.sd")
+    def test_current_samples_is_none_when_nothing_is_playing(self, mock_sd):
+        player = AudioPlayer(on_finished=lambda: None)
+        self.assertIsNone(player.current_samples(1024))
+        player.load(_sine_wav_bytes(seconds=0.1, sr=16000))
+        with patch("audio_player.time.monotonic", return_value=0.0):
+            player.play(rate=1.0)
+            player.pause()
+        self.assertIsNone(player.current_samples(1024))
+
+    @patch("audio_player.sd")
+    def test_current_samples_is_none_past_the_end(self, mock_sd):
+        player = AudioPlayer(on_finished=lambda: None)
+        player.load(_sine_wav_bytes(seconds=0.1, sr=16000))  # 1600 frames
+        with patch("audio_player.time.monotonic", side_effect=[0.0, 10.0]):
+            player.play(rate=1.0)
+            self.assertIsNone(player.current_samples(1024))
+
     @patch("audio_player.threading.Thread")
     @patch("audio_player.sd")
     def test_stop_while_generation_stale_watcher_does_not_fire_on_finished(self, mock_sd, mock_thread):

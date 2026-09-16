@@ -1,5 +1,7 @@
 """Persistent settings (adapters, voice, speed, Sidecar URL) as one JSON file
-at %APPDATA%\\reading-web\\config.json -- replaces extension/defaults.js and
+at %APPDATA%\\reading-web\\config.json -- the folder predates the App's name
+and is kept so existing settings survive the rename. Replaces
+extension/defaults.js and
 chrome.storage.sync. See docs/adr/0009-standalone-app-replaces-extension.md.
 """
 import json
@@ -9,6 +11,22 @@ DEFAULT_SIDECAR_URL = "http://localhost:8934"
 DEFAULT_SPEAKER = "Minh Quân"
 DEFAULT_RATE = 1.0
 DEFAULT_AUTO_NEXT = True
+DEFAULT_BACKEND_MODEL = "default"  # or "v3nano" -- see sidecar/server.py
+# Where the Web View opens on launch; the reader's address bar goes anywhere
+# from there. Editable in Options.
+DEFAULT_START_URL = "https://metruyenchu.co"
+# Reopen the Page the reader was last on (see session.py) instead of Start URL.
+DEFAULT_RESTORE_LAST_PAGE = True
+# The control window's audio visualizer has a few drawing styles; the chrome's
+# carousel arrows cycle through them, and this is the one a fresh install uses.
+# The names must match the switch in ui.VISUALIZER_JS.
+VISUALIZER_STYLES = ("bars", "mirrored", "wave", "blocks")
+DEFAULT_VISUALIZER_STYLE = VISUALIZER_STYLES[0]
+# Read a Paragraph shorter than this together with the ones after it, so a
+# one-line piece of dialogue does not become its own reading stop. Off by
+# default; see chunker.join_short_paragraphs.
+DEFAULT_JOIN_SHORT_PARAGRAPHS = False
+DEFAULT_SHORT_PARAGRAPH_WORDS = 8
 
 # VieNeu-TTS's built-in preset voices (ADR-0008). Static fallback shown
 # before the Sidecar's own /speakers responds.
@@ -67,6 +85,12 @@ class Config:
         data.setdefault("speaker", DEFAULT_SPEAKER)
         data.setdefault("defaultRate", DEFAULT_RATE)
         data.setdefault("autoNext", DEFAULT_AUTO_NEXT)
+        data.setdefault("backendModel", DEFAULT_BACKEND_MODEL)
+        data.setdefault("startUrl", DEFAULT_START_URL)
+        data.setdefault("restoreLastPage", DEFAULT_RESTORE_LAST_PAGE)
+        data.setdefault("visualizerStyle", DEFAULT_VISUALIZER_STYLE)
+        data.setdefault("joinShortParagraphs", DEFAULT_JOIN_SHORT_PARAGRAPHS)
+        data.setdefault("shortParagraphWords", DEFAULT_SHORT_PARAGRAPH_WORDS)
         stored_adapters = data.get("adapters")
         data["adapters"] = merge_default_adapters(stored_adapters) if stored_adapters else list(DEFAULT_ADAPTERS)
         return data

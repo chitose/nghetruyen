@@ -1,4 +1,5 @@
 pywebview
+nicegui
 sounddevice
 soundfile
 numpy

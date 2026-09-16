@@ -41,6 +41,16 @@ Leave this running while reading, or let the App spawn it for you. The App
 expects it at `http://localhost:8934` by default (also configurable in the
 Options window).
 
+If you do leave one running (or use Docker below), the App notices: it probes
+`/speakers` before spawning and uses the one it finds, rather than starting a
+second process that could only fail to bind the port. A Sidecar the App did
+not start is left running when the App closes.
+
+When the App spawns it, no console window appears: it runs with Windows'
+`CREATE_NO_WINDOW`, and its output is appended to `sidecar.log` next to this
+file. Check that log first if the App warns that the Sidecar never became
+healthy.
+
 ## Run in Docker (alternative to the venv)
 
 ```bash

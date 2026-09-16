@@ -46,6 +46,31 @@ def split_into_chunks(text: str, max_len: int = 400) -> list[str]:
     return chunks
 
 
+def join_short_paragraphs(paragraphs: list[str], max_words: int) -> list[str]:
+    """Read Short paragraphs together with the ones that follow.
+
+    Web novels often put a line of dialogue or a scene beat on its own
+    Paragraph; playback and next/prev then stop on each one. Accumulating
+    Paragraphs until they reach `max_words` words keeps whole exchanges
+    together. `max_words` <= 1 leaves them alone.
+    """
+    if max_words <= 1:
+        return [p.strip() for p in paragraphs if p and p.strip()]
+    joined: list[str] = []
+    pending = ""
+    for paragraph in paragraphs:
+        text = paragraph.strip()
+        if not text:
+            continue
+        pending = f"{pending} {text}".strip()
+        if len(pending.split()) >= max_words:
+            joined.append(pending)
+            pending = ""
+    if pending:
+        joined.append(pending)
+    return joined
+
+
 def build_paragraph_chunks(paragraphs: list[str], max_len: int = 400) -> list[dict]:
     chunks = []
     paragraph_index = 0

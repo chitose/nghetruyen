@@ -3,7 +3,17 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from config import Config, DEFAULT_ADAPTERS, DEFAULT_SIDECAR_URL, DEFAULT_SPEAKER
+from config import (
+    Config,
+    DEFAULT_ADAPTERS,
+    DEFAULT_BACKEND_MODEL,
+    DEFAULT_SIDECAR_URL,
+    DEFAULT_JOIN_SHORT_PARAGRAPHS,
+    DEFAULT_SHORT_PARAGRAPH_WORDS,
+    DEFAULT_SPEAKER,
+    DEFAULT_START_URL,
+    DEFAULT_VISUALIZER_STYLE,
+)
 
 
 class TestConfig(unittest.TestCase):
@@ -18,6 +28,11 @@ class TestConfig(unittest.TestCase):
         cfg = Config(self.path)
         self.assertEqual(cfg.get("sidecarUrl"), DEFAULT_SIDECAR_URL)
         self.assertEqual(cfg.get("speaker"), DEFAULT_SPEAKER)
+        self.assertEqual(cfg.get("backendModel"), DEFAULT_BACKEND_MODEL)
+        self.assertEqual(cfg.get("startUrl"), DEFAULT_START_URL)
+        self.assertEqual(cfg.get("visualizerStyle"), DEFAULT_VISUALIZER_STYLE)
+        self.assertEqual(cfg.get("joinShortParagraphs"), DEFAULT_JOIN_SHORT_PARAGRAPHS)
+        self.assertEqual(cfg.get("shortParagraphWords"), DEFAULT_SHORT_PARAGRAPH_WORDS)
         self.assertEqual(len(cfg.get("adapters")), len(DEFAULT_ADAPTERS))
 
     def test_set_persists_to_disk(self):

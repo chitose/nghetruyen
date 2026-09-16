@@ -1,11 +1,20 @@
 # app/main.py
-"""Entry point: spawns the Sidecar, opens the main Web View window with the
-content script injected on every navigation, and wires the js_api bridge.
-See docs/adr/0009-standalone-app-replaces-extension.md.
+"""Entry point.
+
+The App is two windows. The NiceGUI chrome (address bar + Player Bar +
+Options) is served on localhost by `run_ui` and shown in a frameless Controls
+window docked under the reader; the native Web View renders the Chapter and
+runs content.js for extraction. Both talk to the one Controller, which owns
+playback state -- see docs/adr/0010-nicegui-chrome.md.
+
+Where the App was last time (the Page, the reader's bounds, the dock height)
+is read from session.json on launch and written back on shutdown -- see
+docs/adr/0011-restore-session-on-launch.md.
 """
-import json
 import sys
 import threading
+import time
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -14,94 +23,257 @@ import webview
 from api import Api
 from audio_player import AudioPlayer
 from config import Config
+from controller import Controller
+from docking import CONTROLS_HEIGHT, dock
 from playback import PlaybackEngine
+from session import Session, restore_bounds, restore_dock_height
 from sidecar_client import SidecarClient
 from sidecar_manager import SidecarManager
+from ui import UI_HOST, UI_PORT, create_pages, run_ui
+from visualizer import Visualizer
 
-APP_DIR = Path(__file__).parent
-REPO_DIR = APP_DIR.parent
-WEB_DIR = APP_DIR / "web"
-CONFIG_PATH = Path.home() / "AppData" / "Roaming" / "reading-web" / "config.json"
+def _frozen() -> bool:
+    """True inside a PyInstaller build -- the standalone NgheTruyen.exe."""
+    return bool(getattr(sys, "frozen", False))
+
+
+if _frozen():
+    # The App's own modules and web assets are bundled into the exe, so nothing
+    # of ours sits on disk next to it.
+    APP_DIR = Path(sys.executable).resolve().parent
+    BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
+else:
+    APP_DIR = Path(__file__).parent
+    BUNDLE_DIR = APP_DIR
+
+WEB_DIR = BUNDLE_DIR / "web"
+# The data folder keeps its original name: config.json and session.json live
+# there, and renaming it would strand an existing install's settings.
+DATA_DIR = Path.home() / "AppData" / "Roaming" / "reading-web"
+CONFIG_PATH = DATA_DIR / "config.json"
+SESSION_PATH = DATA_DIR / "session.json"
+LOG_PATH = DATA_DIR / "nghetruyen.log"
 
 READERABLE_JS = (WEB_DIR / "readerable.js").read_text(encoding="utf-8")
 CONTENT_JS = (WEB_DIR / "content.js").read_text(encoding="utf-8")
-PLAYER_BAR_CSS = (WEB_DIR / "player-bar.css").read_text(encoding="utf-8")
-ADDRESSBAR_JS = (WEB_DIR / "addressbar.js").read_text(encoding="utf-8")
-
-_main_window = None
 
 
-def push_to_js(event: dict) -> None:
-    if _main_window is None:
-        return
-    if event["type"] == "CHUNK_INDEX":
-        _main_window.evaluate_js(
-            f"window.__vnTtsChunkIndex({event['paragraphIndex']}, {event['totalParagraphs']}, {json.dumps(event['paragraphText'])})"
-        )
-    elif event["type"] == "PLAYBACK_STATE":
-        _main_window.evaluate_js(f"window.__vnTtsPlaybackState({json.dumps(event['state'])})")
-    elif event["type"] == "ERROR":
-        _main_window.evaluate_js(f"window.__vnTtsError({json.dumps(event['message'])})")
-    elif event["type"] == "CHAPTER_DONE":
-        auto_next = config.get("autoNext")
-        if auto_next:
-            api.set_pending_auto_start(True)
-        _main_window.evaluate_js(f"window.__vnTtsChapterDone({json.dumps(auto_next)})")
+def find_sidecar_dir() -> Path:
+    """The Sidecar's directory, which the standalone exe deliberately omits.
+
+    Looked for beside the App and one level up, so both a checkout (app/ next
+    to sidecar/) and an exe dropped into the repo or shipped with sidecar/ next
+    to it work. ADR-0001/0008 keep the Sidecar a separate process with its own
+    heavy dependencies -- vieneu, ONNX Runtime, and a model downloaded from
+    Hugging Face -- so it is the one thing the exe does not carry.
+    """
+    for root in (APP_DIR, APP_DIR.parent):
+        candidate = root / "sidecar"
+        if (candidate / "server.py").is_file():
+            return candidate
+    return APP_DIR.parent / "sidecar"
+
+
+def warn(message: str) -> None:
+    """Warnings have to survive a windowed exe, which has no console."""
+    if sys.stderr is not None:
+        print(message, file=sys.stderr)
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as handle:
+            handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    except OSError:
+        pass
+
+CONTENT_WIDTH = 1200
+CONTENT_HEIGHT = 760
+MIN_CONTENT_WIDTH = 640
+MIN_CONTENT_HEIGHT = 400
+
+CHROME_BASE_URL = f"http://{UI_HOST}:{UI_PORT}/"
 
 
 def inject_content_script(window) -> None:
-    window.evaluate_js(
-        "document.getElementById('vn-tts-style') || "
-        "(function(){const s=document.createElement('style'); s.id='vn-tts-style'; "
-        f"s.textContent = {json.dumps(PLAYER_BAR_CSS)}; document.head.appendChild(s);}})()"
-    )
-    window.evaluate_js(ADDRESSBAR_JS)
+    # Options is served by the chrome server and loaded in this same window
+    # (see Controller.open_options); there is nothing to extract there, and
+    # reporting it would clobber the address bar and the remembered Page.
+    url = window.evaluate_js("location.href") or ""
+    if url.startswith(CHROME_BASE_URL):
+        return
     # readerable.js must run first -- content.js's genericExtract() calls
     # isProbablyReaderable() at call time and expects it already defined.
     window.evaluate_js(READERABLE_JS)
     window.evaluate_js(CONTENT_JS)
 
 
-def open_options_window() -> None:
-    webview.create_window(
-        "Reading Web -- Options",
-        url=str(WEB_DIR / "options.html"),
-        js_api=api,
-        width=680, height=600,
-    )
+def wait_for_ui(port: int, timeout: float = 20.0) -> bool:
+    """The Controls window points at NiceGUI, so the server has to be listening
+    before webview.start() opens it -- otherwise the window shows a dead page."""
+    deadline = time.monotonic() + timeout
+    url = f"http://{UI_HOST}:{port}/"
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1):
+                return True
+        except Exception:
+            time.sleep(0.1)
+    return False
+
+
+def _screens() -> list:
+    try:
+        return list(webview.screens or [])
+    except Exception:
+        return []
+
+
+def _primary_screen():
+    screens = _screens()
+    if not screens:
+        return None
+    return next((s for s in screens if s.x == 0 and s.y == 0), screens[0])
+
+
+def _screen_rects() -> list:
+    return [(screen.x, screen.y, screen.width, screen.height) for screen in _screens()]
+
+
+def find_screen(x: int, y: int):
+    """The (x, y, width, height) of the screen the reader is on, or None."""
+    for screen_x, screen_y, width, height in _screen_rects():
+        if screen_x <= x < screen_x + width and screen_y <= y < screen_y + height:
+            return screen_x, screen_y, width, height
+    primary = _primary_screen()
+    return (primary.x, primary.y, primary.width, primary.height) if primary else None
+
+
+def initial_layout():
+    """Reader (x, y, width, height), sized so the docked Controls window fits."""
+    screen = _primary_screen()
+    if screen is None:
+        return 80, 40, CONTENT_WIDTH, CONTENT_HEIGHT
+    width = min(CONTENT_WIDTH, max(MIN_CONTENT_WIDTH, screen.width - 40))
+    height = min(CONTENT_HEIGHT, max(MIN_CONTENT_HEIGHT, screen.height - CONTROLS_HEIGHT - 80))
+    x = screen.x + (screen.width - width) // 2
+    y = screen.y + max(20, (screen.height - (height + CONTROLS_HEIGHT)) // 2)
+    return x, y, width, height
 
 
 if __name__ == "__main__":
     config = Config(CONFIG_PATH)
+    session = Session(SESSION_PATH)
+
+    sidecar_dir = find_sidecar_dir()
     sidecar_manager = SidecarManager(
-        python_exe=str(REPO_DIR / "sidecar" / "venv" / "Scripts" / "python.exe"),
-        cwd=str(REPO_DIR / "sidecar"),
+        python_exe=str(sidecar_dir / "venv" / "Scripts" / "python.exe"),
+        cwd=str(sidecar_dir),
         port=urlparse(config.get("sidecarUrl")).port or 8934,
+        on_warning=warn,
     )
-    sidecar_manager.start()
+    sidecar_manager.start(backend_model=config.get("backendModel"))
 
     def warn_if_sidecar_unhealthy():
         if not sidecar_manager.wait_healthy():
-            print("Warning: Sidecar did not become healthy within the timeout.", file=sys.stderr)
+            warn("Warning: Sidecar did not become healthy within the timeout.")
 
     threading.Thread(target=warn_if_sidecar_unhealthy, daemon=True).start()
 
     sidecar_client = SidecarClient(config.get("sidecarUrl"))
     audio_player = AudioPlayer(on_finished=lambda: None)  # PlaybackEngine overwrites on_finished
-    playback = PlaybackEngine(sidecar_client, audio_player, notify=push_to_js)
-    api = Api(config, playback, sidecar_client)
-
-    _main_window = webview.create_window(
-        "Reading Web",
-        url="https://metruyenchu.co",  # starting page; address bar lets the reader go anywhere
-        js_api=api,
-        width=1200, height=900,
+    playback = PlaybackEngine(
+        sidecar_client, audio_player,
+        notify=lambda event: controller.on_playback_event(event),
     )
-    _main_window.events.loaded += lambda: inject_content_script(_main_window)
+    controller = Controller(config, playback, sidecar_client)
+    controller.attach_visualizer(Visualizer(audio_player))
+
+    # Serve the chrome first: the Controls window below loads this URL, and the
+    # pages must be registered before ui.run() starts the server.
+    create_pages(controller)
+    threading.Thread(target=run_ui, daemon=True).start()
+    if not wait_for_ui(UI_PORT):
+        warn("Warning: the NiceGUI chrome did not come up; the Controls window may be blank.")
+
+    content_x, content_y, content_width, content_height = (
+        restore_bounds(
+            session.get("readerBounds"), _screen_rects(),
+            min_width=MIN_CONTENT_WIDTH, min_height=MIN_CONTENT_HEIGHT,
+        ) or initial_layout()
+    )
+    start_url = controller.start_url
+    if controller.restore_last_page:
+        start_url = session.get("lastUrl") or start_url
+
+    content_window = webview.create_window(
+        "Nghe Truyện",
+        url=start_url,
+        js_api=Api(controller),
+        x=content_x, y=content_y, width=content_width, height=content_height,
+        min_size=(MIN_CONTENT_WIDTH, MIN_CONTENT_HEIGHT),
+    )
+    controller.attach_content_window(content_window)
+    content_window.events.loaded += lambda: inject_content_script(content_window)
+
+    # Frameless and not draggable: it reads as part of the reader window, and
+    # docking.dock() keeps it glued under the reader from here on.
+    dock_height = restore_dock_height(session.get("dockHeight"), CONTROLS_HEIGHT)
+    controls_window = webview.create_window(
+        "Nghe Truyện -- Controls",
+        url=f"http://{UI_HOST}:{UI_PORT}/",
+        x=content_x, y=content_y + content_height, width=content_width, height=dock_height,
+        frameless=True, easy_drag=False,
+    )
+    dock_state = dock(content_window, controls_window, find_screen, height=dock_height)
+    controller.attach_dock(dock_state)
+
+    # Geometry is tracked as it changes, because by shutdown the window may
+    # already be gone and reading it there would be too late.
+    stored_bounds = session.get("readerBounds")
+    bounds = {"value": list(stored_bounds) if isinstance(stored_bounds, (list, tuple)) else None}
+
+    def track_bounds(*_args):
+        try:
+            bounds["value"] = [
+                content_window.x, content_window.y,
+                content_window.width, content_window.height,
+            ]
+        except Exception:
+            pass
+
+    content_window.events.shown += track_bounds
+    content_window.events.moved += track_bounds
+    content_window.events.resized += track_bounds
+
+    shutting_down = {"done": False}
+
+    def save_session():
+        session.update(
+            lastUrl=controller.current_url or session.get("lastUrl") or "",
+            readerBounds=bounds["value"],
+            dockHeight=dock_state.height,
+        )
+        try:
+            session.save()
+        except OSError as err:
+            warn(f"Warning: could not save the session ({err}).")
 
     def on_closed():
+        # Closing either window quits the App -- the reader can be hidden from
+        # the chrome, so the Controls window is the only way out at that point.
+        if shutting_down["done"]:
+            return
+        shutting_down["done"] = True
+        playback.stop()  # silence first: shutting the Sidecar down can take seconds
+        save_session()
+        for window in (controls_window, content_window):
+            try:
+                window.destroy()
+            except Exception:
+                pass
         sidecar_manager.stop()
 
-    _main_window.events.closed += on_closed
+    content_window.events.closed += on_closed
+    controls_window.events.closed += on_closed
+    controller.attach_quit(on_closed)  # the chrome's close button
 
     webview.start()

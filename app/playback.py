@@ -119,15 +119,46 @@ class PlaybackEngine:
                 del self._cache[i]
         self._prefetch()
 
-    def skip(self, direction: int) -> None:
+    def stop(self) -> None:
+        """Silence playback right now.
+
+        The App calls this as it closes, before anything slow (session save,
+        Sidecar shutdown, which waits for the child to exit) can delay it --
+        audio comes out of this process, not the Sidecar, so it would otherwise
+        keep playing until the process finally went away. Bumping the
+        generation also makes a play_current already blocked on synthesis bail
+        out instead of starting the audio again on its way out."""
+        with self._lock:
+            self._playing = False
+            self._generation += 1
+        self._audio.stop()
+
+    def skip(self, direction: int, steps: int = 1) -> None:
+        """Jump `steps` paragraphs forward (direction > 0) or back.
+
+        `steps` is clamped to the paragraphs that exist, so a coalesced burst
+        past the end still lands on the last one instead of doing nothing."""
+        if steps < 1 or direction == 0:
+            return
         with self._lock:
             chunks = self._chunks
             index = self._index
-            current_paragraph = chunks[index]["paragraphIndex"] if index < len(chunks) else 0
-            target_paragraph = current_paragraph + direction
-            target = next((i for i, c in enumerate(chunks) if c["paragraphIndex"] == target_paragraph), None)
-            if target is None:
+            if index < len(chunks):
+                current_paragraph = chunks[index]["paragraphIndex"]
+            elif self._paragraphs:
+                current_paragraph = len(self._paragraphs) - 1
+            else:
                 return
+            paragraphs = sorted({chunk["paragraphIndex"] for chunk in chunks})
+            if direction > 0:
+                reachable = [p for p in paragraphs if p > current_paragraph]
+            else:
+                reachable = [p for p in paragraphs if p < current_paragraph]
+            if not reachable:
+                return
+            desired = current_paragraph + direction * steps
+            target_paragraph = min(reachable, key=lambda p: abs(p - desired))
+            target = next(i for i, c in enumerate(chunks) if c["paragraphIndex"] == target_paragraph)
             self._index = target
             self._generation += 1
         self._audio.stop()

@@ -1,8 +1,8 @@
-// Extraction, generic fallback, and the Player Bar. Chunking, playback state,
-// and config all live in the Python host now -- see
-// docs/adr/0009-standalone-app-replaces-extension.md. This file only does
-// what needs a live DOM: reading the page, rendering the bar, and (at
-// Python's command) re-querying the next-chapter link to click/navigate it.
+// Extraction and next-chapter navigation only. The address bar and Player Bar
+// now live in the NiceGUI chrome (docs/adr/0010-nicegui-chrome.md); chunking,
+// playback state, and config still live in the Python host. This file does
+// what needs a live DOM: read the Page, report it, and (at Python's command)
+// re-query the next-chapter link to click or navigate it.
 
 function findNextTarget(adapter) {
   if (!adapter) return findGenericNextTarget();
@@ -75,152 +75,32 @@ function genericExtract() {
   return paragraphsFromInnerText(best.innerText || "");
 }
 
-let bar, textPanel, playBtn, statusEl, rateSlider, speakerSelect, textToggleBtn, autoNextCheckbox;
-let started = false;
-let showText = false;
-let lastParagraphText = "";
+// The adapter is resolved once per Page, at load, and re-used when Python asks
+// for the next chapter later -- so __vnTtsGoNext never has to re-ask for it.
 let storedNextAdapter = null;
 
-function injectPlayerBar(defaultRate, currentSpeaker, autoNextEnabled, knownSpeakers) {
-  textPanel = document.createElement("div");
-  textPanel.id = "vn-tts-text-panel";
-  textPanel.hidden = true;
-  document.body.appendChild(textPanel);
-
-  bar = document.createElement("div");
-  bar.id = "vn-tts-bar";
-  bar.innerHTML = `
-    <button id="vn-tts-prev" title="Previous paragraph">⏮</button>
-    <button id="vn-tts-play">▶</button>
-    <button id="vn-tts-next" title="Next paragraph">⏭</button>
-    <input id="vn-tts-rate" type="range" min="0.5" max="2" step="0.1" value="${defaultRate}">
-    <span id="vn-tts-rate-label">${defaultRate.toFixed(1)}x</span>
-    <select id="vn-tts-speaker">${knownSpeakers.map((s) => `<option${s === currentSpeaker ? " selected" : ""}>${s}</option>`).join("")}</select>
-    <button id="vn-tts-text-toggle" title="Show/hide current paragraph">👁</button>
-    <label id="vn-tts-autonext-label" title="Automatically move to the next chapter when this one ends">
-      <input type="checkbox" id="vn-tts-autonext" ${autoNextEnabled ? "checked" : ""}> Auto-next
-    </label>
-    <span id="vn-tts-status"></span>
-  `;
-  document.body.appendChild(bar);
-
-  playBtn = bar.querySelector("#vn-tts-play");
-  statusEl = bar.querySelector("#vn-tts-status");
-  rateSlider = bar.querySelector("#vn-tts-rate");
-  speakerSelect = bar.querySelector("#vn-tts-speaker");
-  textToggleBtn = bar.querySelector("#vn-tts-text-toggle");
-  autoNextCheckbox = bar.querySelector("#vn-tts-autonext");
-  const rateLabel = bar.querySelector("#vn-tts-rate-label");
-
-  playBtn.addEventListener("click", () => {
-    if (!started) {
-      started = true;
-      playBtn.textContent = "⏸";
-      window.pywebview.api.start_playback();
-    } else {
-      window.pywebview.api.toggle_play();
-    }
-  });
-
-  const SKIP_DEBOUNCE_MS = 400;
-  let lastSkipAt = 0;
-  function sendSkip(direction) {
-    const now = Date.now();
-    if (now - lastSkipAt < SKIP_DEBOUNCE_MS) return;
-    lastSkipAt = now;
-    window.pywebview.api.skip(direction);
-  }
-  bar.querySelector("#vn-tts-prev").addEventListener("click", () => sendSkip(-1));
-  bar.querySelector("#vn-tts-next").addEventListener("click", () => sendSkip(1));
-
-  textToggleBtn.addEventListener("click", () => {
-    showText = !showText;
-    textPanel.hidden = !showText;
-    if (showText) textPanel.textContent = lastParagraphText;
-  });
-
-  autoNextCheckbox.addEventListener("change", () => {
-    window.pywebview.api.set_auto_next(autoNextCheckbox.checked);
-  });
-
-  rateSlider.addEventListener("input", () => {
-    const rate = parseFloat(rateSlider.value);
-    rateLabel.textContent = `${rate.toFixed(1)}x`;
-    window.pywebview.api.set_rate(rate);
-  });
-
-  speakerSelect.addEventListener("change", () => {
-    window.pywebview.api.set_speaker(speakerSelect.value);
-  });
-
-  window.pywebview.api.get_speakers().then((res) => {
-    if (!res || !res.ok) return;
-    speakerSelect.innerHTML = res.speakers
-      .map((s) => `<option value="${s}"${s === currentSpeaker ? " selected" : ""}>${s}</option>`)
-      .join("");
-  });
-}
-
-// --- Python -> JS pushes ---
-
-window.__vnTtsChunkIndex = function (paragraphIndex, totalParagraphs, paragraphText) {
-  statusEl.onclick = null;
-  statusEl.style.cursor = "";
-  statusEl.textContent = `${paragraphIndex + 1} / ${totalParagraphs}`;
-  lastParagraphText = paragraphText;
-  if (showText) textPanel.textContent = paragraphText;
-};
-
-window.__vnTtsPlaybackState = function (state) {
-  if (state === "buffering") {
-    playBtn.textContent = "⏳";
-    playBtn.disabled = true;
-    statusEl.textContent = `Buffering…`;
-  } else {
-    playBtn.disabled = false;
-    playBtn.textContent = state === "playing" ? "⏸" : "▶";
-  }
-};
-
-window.__vnTtsError = function (message) {
-  statusEl.textContent = message;
-  started = false;
-};
-
-window.__vnTtsChapterDone = function (autoNext) {
-  playBtn.textContent = "▶";
-  started = false;
+// Python -> JS: follow this Page's next-chapter link. Returns false when there
+// is genuinely no next link (end of novel), which the chrome reports.
+window.__vnTtsGoNext = function () {
   const target = findNextTarget(storedNextAdapter);
-  if (!target) {
-    statusEl.textContent = "End of novel.";
-    return;
-  }
-  const goNext = () => {
-    if (target.url) location.href = target.url;
-    else target.el.click();
-  };
-  if (autoNext) {
-    goNext();
-  } else {
-    statusEl.textContent = "Chapter done — click to continue ➜";
-    statusEl.style.cursor = "pointer";
-    statusEl.onclick = goNext;
-  }
+  if (!target) return false;
+  if (target.url) location.href = target.url;
+  else target.el.click();
+  return true;
 };
-
-// --- Boot ---
 
 (async function init() {
   const init = await window.pywebview.api.get_init_data(location.hostname);
-  const adapter = init.adapter;
-  const paragraphs = adapter ? extractWithAdapter(adapter) : genericExtract();
-  if (!paragraphs || !paragraphs.length) return; // nothing readable here -- stay invisible
-
-  storedNextAdapter = adapter;
-  injectPlayerBar(init.defaultRate, init.speaker, init.autoNext, init.knownSpeakers);
-  const result = await window.pywebview.api.chapter_ready(paragraphs, document.title);
-  if (result && result.autoStart) {
-    started = true;
-    playBtn.textContent = "⏸";
+  storedNextAdapter = init.adapter;
+  let paragraphs = null;
+  try {
+    paragraphs = init.adapter ? extractWithAdapter(init.adapter) : genericExtract();
+  } catch (err) {
+    paragraphs = null;
   }
+  // Report every Page, readable or not, so the chrome can say where it is and
+  // when a Page has nothing to read.
+  await window.pywebview.api.page_loaded(location.href, document.title, paragraphs ? paragraphs.length : 0);
+  if (!paragraphs || !paragraphs.length) return; // nothing readable here
+  await window.pywebview.api.chapter_ready(paragraphs, document.title);
 })();

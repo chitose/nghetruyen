@@ -44,3 +44,8 @@ entirely -- a single-window app has no "other tabs" to guard against.
 reading session end to end; then it gets deleted. No migration path exists
 from the old `chrome.storage` adapters/settings -- the App starts from the same
 baked-in `DEFAULT_ADAPTERS` a fresh extension install would.
+
+**Amended by [ADR-0010](0010-nicegui-chrome.md):** the Player Bar and address
+bar are no longer injected into the Page. They are a NiceGUI app in a second
+window, and `app/api.py` is now only the extraction bridge content.js calls.
+Everything above about the Python host owning playback state still holds.

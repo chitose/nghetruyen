@@ -51,6 +51,26 @@ class TestPlaybackEngine(unittest.TestCase):
         self.engine.skip(-1)
         self.assertEqual(self.engine._index, 0)
 
+    def test_a_multi_paragraph_skip_clamps_to_the_last_paragraph(self):
+        self.engine._index = 0
+        self.engine.skip(1, steps=9)  # only paragraph 1 exists ahead
+        self.assertEqual(self.engine._index, 2)
+
+    def test_a_multi_paragraph_skip_back_clamps_to_the_first_paragraph(self):
+        self.engine._index = 2  # in paragraph 1
+        self.engine.skip(-1, steps=9)
+        self.assertEqual(self.engine._index, 0)
+
+    def test_skip_next_after_the_chapter_is_done_is_a_noop(self):
+        self.engine._index = len(CHUNKS)  # the last chunk has finished
+        self.engine.skip(1)
+        self.assertEqual(self.engine._index, len(CHUNKS))
+
+    def test_skip_back_after_the_chapter_is_done_reaches_the_previous_paragraph(self):
+        self.engine._index = len(CHUNKS)
+        self.engine.skip(-1)
+        self.assertEqual(self.engine._index, 0)
+
     def test_stale_generation_play_current_does_not_touch_audio(self):
         # Simulate skip()/_on_chunk_finished running concurrently with
         # play_current()'s (blocking) call to _prefetch(): by the time
@@ -65,6 +85,28 @@ class TestPlaybackEngine(unittest.TestCase):
             self.engine._generation += 1  # simulate a concurrent skip()
 
         self.engine._prefetch = prefetch_then_supersede
+        self.engine.play_current()
+        self.audio.load.assert_not_called()
+        self.audio.play.assert_not_called()
+
+    def test_stop_silences_audio_and_marks_not_playing(self):
+        self.engine.play_current()
+        self.audio.reset_mock()
+        self.engine.stop()
+        self.audio.stop.assert_called_once()
+        self.assertFalse(self.engine._playing)
+
+    def test_stop_makes_a_pending_play_current_bail_out(self):
+        # play_current() blocked in _prefetch() when the App closes must not
+        # start audio on its way out.
+        self.engine._index = 0
+        original_prefetch = self.engine._prefetch
+
+        def prefetch_then_close():
+            original_prefetch()
+            self.engine.stop()
+
+        self.engine._prefetch = prefetch_then_close
         self.engine.play_current()
         self.audio.load.assert_not_called()
         self.audio.play.assert_not_called()
