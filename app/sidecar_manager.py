@@ -8,15 +8,33 @@ The Sidecar is a console program, but it is never meant to show a window: a
 console-less App (pythonw, or a PyInstaller --noconsole build) would otherwise
 make Windows allocate a visible console for it. It runs with CREATE_NO_WINDOW
 and its output goes to sidecar.log instead, so startup errors stay readable.
+
+`SidecarStartup` sits on top of `SidecarManager`: it drives the launch and
+reports how it went, so the chrome can show the reader what is happening
+instead of the Sidecar failing silently into that log. See
+docs/adr/0013-sidecar-startup-status.md.
 """
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 
 LOG_NAME = "sidecar.log"
+
+# How long the Sidecar gets to answer /speakers before the App calls it failed.
+# A timeout is not proof that it is dead: a first run downloads the voice model
+# from Hugging Face, which takes minutes. SidecarStartup says so, and its Retry
+# waits again rather than respawning.
+DEFAULT_HEALTH_TIMEOUT = 60.0
+
+# Sidecar startup states, reported through SidecarStartup's on_status and
+# rendered by the chrome (see controller.report_sidecar).
+STARTING = "starting"
+READY = "ready"
+FAILED = "failed"
 
 
 def _hidden_window_kwargs() -> dict:
@@ -72,6 +90,20 @@ class SidecarManager:
                 f"Warning: failed to start the Sidecar ({err}). "
                 "Is sidecar/venv set up? See sidecar/README.md."
             )
+
+    def ensure_running(self, backend_model: str = "default") -> None:
+        """start(), but safe to call again later -- the Retry path.
+
+        A Sidecar this manager already spawned is left alone, because "not
+        healthy yet" usually means "still loading the voice model", and killing
+        it would throw that work away. Only a Sidecar that never started, or
+        one whose process has since exited, is spawned.
+        """
+        if self.using_existing or self.is_running:
+            return
+        if self._proc is not None:
+            self.stop()  # the handle is dead; clear it so start() spawns again
+        self.start(backend_model=backend_model)
 
     def speakers_url(self) -> str:
         return f"http://localhost:{self.port}/speakers"
@@ -136,3 +168,86 @@ class SidecarManager:
             except OSError:
                 pass
             self._log_file = None
+
+
+class SidecarStartup:
+    """Launches the Sidecar and reports how the launch went.
+
+    main.py used to spawn the Sidecar and let a background thread write one
+    line to sidecar.log if it never answered, so a Sidecar that could not start
+    looked like an App where Play quietly did nothing. This reports
+    'starting' -> 'ready' or 'failed' through `on_status`, which now goes to the
+    Controls strip's status line (see docs/adr/0013-sidecar-startup-status.md).
+
+    Calling `start()` again is that line's Retry button. `SidecarManager.
+    ensure_running` is what makes it safe: a Sidecar that is merely slow is
+    waited on rather than replaced. A watch already in flight swallows the
+    repeat, so double-clicking Retry spawns nothing twice.
+    """
+
+    def __init__(self, manager, on_status, on_warning=None,
+                 timeout: float = DEFAULT_HEALTH_TIMEOUT, spawn=None):
+        self._manager = manager
+        self._on_status = on_status
+        self._on_warning = on_warning or (lambda message: None)
+        self._timeout = timeout
+        # Injectable so tests do not have to race a real thread.
+        self._spawn = spawn or _run_in_background
+        self._lock = threading.Lock()
+        self._watching = False
+        self._stopped = False
+
+    def start(self, backend_model: str = "default") -> None:
+        """Spawn the Sidecar (if needed) and watch for it, in the background."""
+        with self._lock:
+            if self._watching or self._stopped:
+                return
+            self._watching = True
+        self._on_status(STARTING, "")
+        self._spawn(lambda: self._watch(backend_model))
+
+    def stop(self) -> None:
+        """The App is quitting, so nothing more may be spawned.
+
+        This takes the lock a watch spawns under: a Retry that raced the reader
+        window closing would otherwise leave a Sidecar running that no one will
+        stop, holding the port against the next launch."""
+        with self._lock:
+            self._stopped = True
+
+    def _watch(self, backend_model: str) -> None:
+        try:
+            with self._lock:
+                if self._stopped:
+                    return
+                self._manager.ensure_running(backend_model=backend_model)
+            if not self._alive():
+                # The spawn itself failed (no sidecar/venv, bad path); waiting
+                # a minute would only delay the same verdict.
+                self._fail("The Sidecar did not start.")
+            elif self._manager.wait_healthy(timeout=self._timeout):
+                self._on_status(READY, "")
+            elif self._alive():
+                self._fail(
+                    "The Sidecar is still starting "
+                    "(it may be downloading or loading its voice model)."
+                )
+            else:
+                self._fail("The Sidecar stopped before it was ready.")
+        finally:
+            with self._lock:
+                self._watching = False
+
+    def _alive(self) -> bool:
+        """True when a Sidecar is there to wait for. One the App did not spawn
+        counts: something else owns it (started by hand, or the Docker image)."""
+        return bool(self._manager.using_existing or self._manager.is_running)
+
+    def _fail(self, note: str) -> None:
+        message = f"{note} See {self._manager.log_path}"
+        self._on_status(FAILED, message)
+        self._on_warning(f"Warning: {message}")
+
+
+def _run_in_background(callback) -> None:
+    threading.Thread(target=callback, daemon=True).start()

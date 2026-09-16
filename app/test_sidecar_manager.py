@@ -6,7 +6,34 @@ import urllib.error
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-from sidecar_manager import SidecarManager
+from sidecar_manager import FAILED, READY, STARTING, SidecarManager, SidecarStartup
+
+
+class FakeManager:
+    """Stands in for SidecarManager: liveness and health are scripted, and the
+    wait can flip them mid-flight the way a real one changes state."""
+
+    def __init__(self, healthy=False, running=True, using_existing=False, on_wait=None):
+        self.log_path = r"C:\sidecar\sidecar.log"
+        self.healthy = healthy
+        self.running = running
+        self.using_existing = using_existing
+        self.on_wait = on_wait
+        self.ensure_calls = []
+        self.waits = 0
+
+    def ensure_running(self, backend_model="default"):
+        self.ensure_calls.append(backend_model)
+
+    @property
+    def is_running(self):
+        return self.running
+
+    def wait_healthy(self, timeout=None):
+        self.waits += 1
+        if self.on_wait is not None:
+            self.on_wait(self)
+        return self.healthy
 
 
 class TestSidecarManager(unittest.TestCase):
@@ -87,6 +114,49 @@ class TestSidecarManager(unittest.TestCase):
         mock_popen.assert_called_once()
         self.assertFalse(mgr.using_existing)
 
+    @patch("sidecar_manager.subprocess.Popen")
+    def test_ensure_running_spawns_when_nothing_was_started(self, mock_popen):
+        with patch.object(SidecarManager, "is_healthy", return_value=False):
+            mgr = self.manager()
+            mgr.ensure_running()
+        mock_popen.assert_called_once()
+
+    @patch("sidecar_manager.subprocess.Popen")
+    def test_ensure_running_leaves_a_live_sidecar_alone(self, mock_popen):
+        # Retry after a health timeout: the process is alive, which usually
+        # means it is still loading its model -- waiting again beats throwing
+        # that work away and starting over.
+        live = MagicMock()
+        live.poll.return_value = None
+        mock_popen.return_value = live
+        with patch.object(SidecarManager, "is_healthy", return_value=False):
+            mgr = self.manager()
+            mgr.ensure_running()
+            mgr.ensure_running(backend_model="v3nano")
+        mock_popen.assert_called_once()
+        live.terminate.assert_not_called()
+
+    @patch("sidecar_manager.subprocess.Popen")
+    def test_ensure_running_respawns_a_sidecar_that_died(self, mock_popen):
+        dead, live = MagicMock(), MagicMock()
+        dead.poll.return_value = 1  # exited between the spawn and the Retry
+        live.poll.return_value = None
+        mock_popen.side_effect = [dead, live]
+        with patch.object(SidecarManager, "is_healthy", return_value=False):
+            mgr = self.manager()
+            mgr.ensure_running()
+            mgr.ensure_running()
+        self.assertEqual(mock_popen.call_count, 2)
+        dead.terminate.assert_called_once()  # the dead handle is cleaned up
+
+    @patch("sidecar_manager.subprocess.Popen")
+    def test_ensure_running_leaves_an_existing_sidecar_alone(self, mock_popen):
+        with patch.object(SidecarManager, "is_healthy", return_value=True):
+            mgr = self.manager()
+            mgr.ensure_running()
+            mgr.ensure_running()
+        mock_popen.assert_not_called()
+
     @unittest.skipUnless(sys.platform == "win32", "Windows-only creation flag")
     @patch("sidecar_manager.subprocess.Popen")
     def test_start_hides_the_sidecar_console_window(self, mock_popen):
@@ -164,6 +234,101 @@ class TestSidecarManager(unittest.TestCase):
         mgr.start()
         self.assertEqual(len(warnings), 1)
         self.assertIn("failed to start the Sidecar", warnings[0])
+
+
+class TestSidecarStartup(unittest.TestCase):
+    """The status main.py's startup thread reports to the chrome, which used to
+    be silence plus a line in sidecar.log."""
+
+    def setUp(self):
+        self.statuses = []
+        self.warnings = []
+
+    def startup(self, manager, spawn=None):
+        return SidecarStartup(
+            manager,
+            on_status=lambda state, message: self.statuses.append((state, message)),
+            on_warning=self.warnings.append,
+            # No real thread: a test runs the watch inline and sees the result.
+            spawn=spawn or (lambda watch: watch()),
+        )
+
+    def test_reports_starting_then_ready(self):
+        manager = FakeManager(healthy=True)
+        self.startup(manager).start(backend_model="v3nano")
+        self.assertEqual(self.statuses, [(STARTING, ""), (READY, "")])
+        self.assertEqual(manager.ensure_calls, ["v3nano"])
+        self.assertEqual(self.warnings, [])
+
+    def test_reports_failure_when_the_sidecar_cannot_be_spawned(self):
+        manager = FakeManager(running=False)  # no sidecar/venv, or a bad path
+        self.startup(manager).start()
+        self.assertEqual(self.statuses[0], (STARTING, ""))
+        state, message = self.statuses[-1]
+        self.assertEqual(state, FAILED)
+        self.assertIn("did not start", message)
+        self.assertIn(manager.log_path, message)  # where to look next
+        self.assertEqual(manager.waits, 0)  # no point waiting a minute first
+        self.assertEqual(len(self.warnings), 1)
+        self.assertIn(manager.log_path, self.warnings[0])
+
+    def test_a_sidecar_still_loading_is_reported_as_still_starting(self):
+        # A first run downloads the voice model, so a timeout is not death.
+        manager = FakeManager(healthy=False, running=True)
+        self.startup(manager).start()
+        self.assertEqual(self.statuses[-1][0], FAILED)
+        self.assertIn("still starting", self.statuses[-1][1])
+
+    def test_a_sidecar_that_dies_during_the_wait_says_so(self):
+        def die(_manager):
+            _manager.running = False
+
+        manager = FakeManager(healthy=False, running=True, on_wait=die)
+        self.startup(manager).start()
+        self.assertEqual(self.statuses[-1][0], FAILED)
+        self.assertIn("stopped before it was ready", self.statuses[-1][1])
+
+    def test_an_existing_sidecar_is_waited_for(self):
+        # Started by hand, or the Docker image: nothing of ours to watch, but
+        # something to wait for rather than a failure.
+        manager = FakeManager(healthy=True, running=False, using_existing=True)
+        self.startup(manager).start()
+        self.assertEqual(self.statuses[-1], (READY, ""))
+
+    def test_a_retry_while_a_watch_is_in_flight_is_ignored(self):
+        watchers = []
+        startup = self.startup(FakeManager(healthy=True), spawn=watchers.append)
+        startup.start()
+        startup.start()  # Retry clicked again before the first watch finished
+        self.assertEqual(len(watchers), 1)
+
+    def test_start_again_after_a_failure_watches_again(self):
+        watchers = []
+        manager = FakeManager(running=False)  # first attempt cannot spawn
+        startup = self.startup(manager, spawn=watchers.append)
+        startup.start()
+        watchers.pop()()  # run the first watch inline; it reports the failure
+        self.assertEqual(self.statuses[-1][0], FAILED)
+        manager.running = True  # the reader fixed sidecar/venv, then hit Retry
+        manager.healthy = True
+        startup.start()
+        self.assertEqual(len(watchers), 1)  # the guard was released
+        watchers.pop()()
+        self.assertEqual(self.statuses[-1], (READY, ""))
+
+    def test_quitting_cancels_a_retry_that_has_not_spawned_yet(self):
+        # Otherwise the App could exit just after a Retry spawned a Sidecar
+        # that nothing will ever stop, and it would hold the port.
+        watchers = []
+        manager = FakeManager(healthy=True)
+        startup = self.startup(manager, spawn=watchers.append)
+        startup.start()
+        startup.stop()
+        watchers.pop()()  # the watch runs, but the App is already going away
+        self.assertEqual(manager.ensure_calls, [])
+        self.assertEqual(self.statuses, [(STARTING, "")])
+        startup.start()  # and Retry cannot start another one either
+        self.assertEqual(len(watchers), 0)
 
 
 if __name__ == "__main__":

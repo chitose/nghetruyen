@@ -9,7 +9,9 @@ playback state -- see docs/adr/0010-nicegui-chrome.md.
 
 Where the App was last time (the Page, the reader's bounds, the dock height)
 is read from session.json on launch and written back on shutdown -- see
-docs/adr/0011-restore-session-on-launch.md.
+docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` spawns the
+Sidecar and reports its progress to the chrome, so startup is not silent --
+see docs/adr/0013-sidecar-startup-status.md.
 """
 import sys
 import threading
@@ -28,7 +30,7 @@ from docking import CONTROLS_HEIGHT, dock
 from playback import PlaybackEngine
 from session import Session, restore_bounds, restore_dock_height
 from sidecar_client import SidecarClient
-from sidecar_manager import SidecarManager
+from sidecar_manager import SidecarManager, SidecarStartup
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
 from visualizer import Visualizer
 
@@ -170,13 +172,6 @@ if __name__ == "__main__":
         port=urlparse(config.get("sidecarUrl")).port or 8934,
         on_warning=warn,
     )
-    sidecar_manager.start(backend_model=config.get("backendModel"))
-
-    def warn_if_sidecar_unhealthy():
-        if not sidecar_manager.wait_healthy():
-            warn("Warning: Sidecar did not become healthy within the timeout.")
-
-    threading.Thread(target=warn_if_sidecar_unhealthy, daemon=True).start()
 
     sidecar_client = SidecarClient(config.get("sidecarUrl"))
     audio_player = AudioPlayer(on_finished=lambda: None)  # PlaybackEngine overwrites on_finished
@@ -186,6 +181,18 @@ if __name__ == "__main__":
     )
     controller = Controller(config, playback, sidecar_client)
     controller.attach_visualizer(Visualizer(audio_player))
+
+    # The Sidecar starts off the critical path, and how it goes is reported to
+    # the chrome's status line rather than only into sidecar.log -- a Sidecar
+    # that never came up used to look like an App where Play did nothing. Its
+    # Retry button runs the same call again; see
+    # docs/adr/0013-sidecar-startup-status.md.
+    backend_model = config.get("backendModel")
+    startup = SidecarStartup(
+        sidecar_manager, on_status=controller.report_sidecar, on_warning=warn,
+    )
+    startup.start(backend_model=backend_model)
+    controller.attach_sidecar_retry(lambda: startup.start(backend_model=backend_model))
 
     # Serve the chrome first: the Controls window below loads this URL, and the
     # pages must be registered before ui.run() starts the server.
@@ -270,6 +277,7 @@ if __name__ == "__main__":
                 window.destroy()
             except Exception:
                 pass
+        startup.stop()  # a Retry in flight must not spawn one we won't stop
         sidecar_manager.stop()
 
     content_window.events.closed += on_closed

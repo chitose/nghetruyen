@@ -7,6 +7,7 @@ from config import (
     DEFAULT_START_URL,
 )
 from controller import Controller
+from sidecar_manager import FAILED, READY, STARTING
 
 
 class FakeScheduler:
@@ -510,6 +511,66 @@ class TestController(unittest.TestCase):
         controller.go_back()
         controller.advance_chapter()
         controller.on_playback_event({"type": "CHAPTER_DONE"})
+
+    # --- Sidecar startup status ----------------------------------------------
+
+    def test_the_sidecar_starts_out_reported_as_starting(self):
+        # main.py starts it before the chrome exists, so the chrome's first
+        # tick has to see "starting" rather than a blank status line.
+        self.assertTrue(self.controller.sidecar_starting)
+        self.assertFalse(self.controller.sidecar_failed)
+
+    def test_report_sidecar_ready_clears_the_starting_flag(self):
+        self.controller.report_sidecar(READY)
+        self.assertFalse(self.controller.sidecar_starting)
+        self.assertFalse(self.controller.sidecar_failed)
+        self.assertEqual(self.controller.sidecar_message, "")
+
+    def test_report_sidecar_failure_keeps_the_message_for_the_chrome(self):
+        self.controller.report_sidecar(FAILED, r"The Sidecar did not start. See C:\sidecar\sidecar.log")
+        self.assertFalse(self.controller.sidecar_starting)
+        self.assertTrue(self.controller.sidecar_failed)
+        self.assertIn("sidecar.log", self.controller.sidecar_message)
+
+    def test_a_retry_reports_starting_again(self):
+        # Which is what hides the Retry button while the new watch runs.
+        self.controller.report_sidecar(FAILED, "The Sidecar did not start.")
+        self.controller.report_sidecar(STARTING)
+        self.assertTrue(self.controller.sidecar_starting)
+        self.assertFalse(self.controller.sidecar_failed)
+
+    def test_recovering_clears_a_stale_sidecar_error(self):
+        self.controller.report_sidecar(FAILED, "The Sidecar did not start.")
+        self.controller.on_playback_event({"type": "ERROR", "message": "Sidecar unreachable: refused"})
+        self.controller.report_sidecar(READY)
+        self.assertFalse(self.controller.sidecar_failed)
+        self.assertEqual(self.controller.error_message, "")
+
+    def test_a_retry_clears_a_stale_sidecar_error(self):
+        self.controller.on_playback_event({"type": "ERROR", "message": "Sidecar unreachable: refused"})
+        self.controller.report_sidecar(STARTING)
+        self.assertEqual(self.controller.error_message, "")
+
+    def test_audio_proves_the_sidecar_is_up(self):
+        # It was started by hand after the App gave up: a Chunk could only have
+        # been synthesized if the Sidecar answered, so the banner is stale.
+        self.controller.report_sidecar(FAILED, "The Sidecar did not start.")
+        self.controller.on_playback_event({
+            "type": "CHUNK_INDEX", "paragraphIndex": 0,
+            "totalParagraphs": 2, "paragraphText": "a.",
+        })
+        self.assertFalse(self.controller.sidecar_failed)
+        self.assertFalse(self.controller.sidecar_starting)
+        self.assertEqual(self.controller.sidecar_message, "")
+
+    def test_retry_sidecar_runs_the_attached_starter(self):
+        calls = []
+        self.controller.attach_sidecar_retry(lambda: calls.append("retry"))
+        self.controller.retry_sidecar()
+        self.assertEqual(calls, ["retry"])
+
+    def test_retry_sidecar_without_a_starter_never_raises(self):
+        self.controller.retry_sidecar()
 
 
 if __name__ == "__main__":

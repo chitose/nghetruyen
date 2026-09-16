@@ -212,6 +212,27 @@ def _speaker_options(controller) -> list:
     return options
 
 
+def status_text(controller) -> str:
+    """What the status line shows, which the Sidecar's startup shares with the
+    per-Paragraph position.
+
+    A Sidecar failure outranks everything else, because nothing can play until
+    it is fixed and the fix is in that message (Retry, or the log it names). A
+    playback error outranks the "starting" notice, being the more specific
+    thing to have just happened. The position itself only matters once the
+    Sidecar is up, since that is when playback can work at all.
+    """
+    if controller.sidecar_failed:
+        return controller.sidecar_message
+    if controller.error_message:
+        return controller.error_message
+    if controller.sidecar_starting:
+        return "Starting the Sidecar…"
+    if controller.total_paragraphs:
+        return f"{controller.paragraph_index + 1} / {controller.total_paragraphs}"
+    return controller.status
+
+
 def _chrome(controller) -> None:
     view = {
         "url_rev": -1,
@@ -219,6 +240,11 @@ def _chrome(controller) -> None:
         "show_text": False,
         "viz_idle": False,
         "viz_style": None,
+        "retry_shown": False,
+        # Whether the Sidecar was already up when this page was built; if it was
+        # not, the voice list below is the baked-in fallback and is re-fetched
+        # once the startup watcher reports it ready.
+        "sidecar_ready": not (controller.sidecar_starting or controller.sidecar_failed),
     }
 
     # Dragging the title bar moves the strip, the grip resizes it (see
@@ -306,6 +332,13 @@ def _chrome(controller) -> None:
                 "viz-style text-xs opacity-60 w-20"
             )
             status_label = ui.label("").classes("text-sm opacity-80")
+            # Only reachable while the Sidecar is down: it appears next to the
+            # message saying so, and runs the startup watcher again.
+            retry_button = ui.button(
+                "Retry", on_click=lambda: _in_thread(controller.retry_sidecar),
+            ).props("flat dense")
+            retry_button.tooltip("Start the Sidecar again")
+            retry_button.set_visibility(False)
 
         text_panel = ui.label("").classes("w-full whitespace-pre-wrap text-sm opacity-90")
         text_panel.set_visibility(False)
@@ -320,12 +353,23 @@ def _chrome(controller) -> None:
         )
 
     # Live voice list, off the event loop: the HTTP call runs in a thread and
-    # the result is folded in on the next tick.
-    voices = {"result": None}
-    threading.Thread(
-        target=lambda: voices.__setitem__("result", controller.get_speakers()),
-        daemon=True,
-    ).start()
+    # the result is folded in on the next tick. Fetched again if it turns out
+    # the Sidecar was not up yet (see tick), since the first attempt then only
+    # got as far as the static KNOWN_SPEAKERS fallback.
+    voices = {"result": None, "fetching": False}
+
+    def fetch_voices() -> None:
+        if voices["fetching"]:
+            return
+        voices["fetching"] = True
+
+        def load() -> None:
+            voices["result"] = controller.get_speakers()
+            voices["fetching"] = False
+
+        threading.Thread(target=load, daemon=True).start()
+
+    fetch_voices()
 
     def tick() -> None:
         if controller.url_rev != view["url_rev"]:
@@ -337,6 +381,15 @@ def _chrome(controller) -> None:
             speaker_select.value = controller.speaker
             auto_next.value = controller.auto_next
             style_label.text = controller.visualizer_style.title()
+        if controller.sidecar_failed != view["retry_shown"]:
+            view["retry_shown"] = controller.sidecar_failed
+            retry_button.set_visibility(controller.sidecar_failed)
+        # The Sidecar can come up after this page was built, in which case the
+        # voice list above was the baked-in fallback; fetch the real one now.
+        sidecar_up = not (controller.sidecar_starting or controller.sidecar_failed)
+        if sidecar_up and not view["sidecar_ready"]:
+            view["sidecar_ready"] = True
+            fetch_voices()
         result = voices["result"]
         if result is not None:
             voices["result"] = None
@@ -349,12 +402,7 @@ def _chrome(controller) -> None:
         rate_label.text = f"{controller.rate:.1f}x"
         if view["show_text"]:
             text_panel.text = controller.paragraph_text
-        if controller.error_message:
-            status_label.text = controller.error_message
-        elif controller.total_paragraphs:
-            status_label.text = f"{controller.paragraph_index + 1} / {controller.total_paragraphs}"
-        else:
-            status_label.text = controller.status
+        status_label.text = status_text(controller)
 
     ui.timer(0.2, tick)
 

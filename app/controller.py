@@ -18,6 +18,9 @@ from config import (
     KNOWN_SPEAKERS,
     VISUALIZER_STYLES,
 )
+from sidecar_manager import FAILED as SIDECAR_FAILED
+from sidecar_manager import READY as SIDECAR_READY
+from sidecar_manager import STARTING as SIDECAR_STARTING
 
 # A burst of next/prev clicks is applied as one jump once the clicks pause, so
 # holding the buttons skips several Paragraphs instead of firing a synthesis
@@ -45,6 +48,7 @@ class Controller:
         self._skip_chapter_reload = False
         self._dock = None  # docking.Dock, for resizing/moving the Controls strip
         self._quit = None  # main.py's shutdown, for the chrome's close button
+        self._sidecar_retry = None  # main.py's SidecarStartup.start, for Retry
         self._visualizer = None  # visualizer.Visualizer, for the chrome's bars
         self._schedule_timer = schedule_timer or _start_timer
         self._skip_lock = threading.Lock()
@@ -69,6 +73,14 @@ class Controller:
         self.error_message = ""
         self.chapter_loaded = False
         self.chapter_done = False
+
+        # --- Sidecar startup, which happens while the chrome is already on
+        # screen. The status line reports it and Retry appears after a failure
+        # -- the Sidecar used to be spawned in silence (see
+        # docs/adr/0013-sidecar-startup-status.md). ---
+        self.sidecar_starting = True
+        self.sidecar_failed = False
+        self.sidecar_message = ""
 
     # --- wiring -------------------------------------------------------------
 
@@ -127,6 +139,28 @@ class Controller:
     def quit(self) -> None:
         if self._quit is not None:
             self._quit()
+
+    def attach_sidecar_retry(self, retry_fn) -> None:
+        """main.py's SidecarStartup.start, for the chrome's Retry button."""
+        self._sidecar_retry = retry_fn
+
+    def retry_sidecar(self) -> None:
+        if self._sidecar_retry is not None:
+            self._sidecar_retry()
+
+    def report_sidecar(self, state: str, message: str = "") -> None:
+        """Sidecar startup progress, from main.py's SidecarStartup thread.
+
+        The chrome polls this instead of the Sidecar failing silently into
+        sidecar.log. A watch that starts or finally succeeds also clears a
+        stale "Sidecar unreachable" from an earlier attempt; a failure that
+        persists reports itself again."""
+        with self._lock:
+            self.sidecar_starting = state not in (SIDECAR_READY, SIDECAR_FAILED)
+            self.sidecar_failed = state == SIDECAR_FAILED
+            self.sidecar_message = message
+            if state in (SIDECAR_STARTING, SIDECAR_READY):
+                self.error_message = ""
 
     @property
     def known_speakers(self) -> list:
@@ -389,6 +423,12 @@ class Controller:
                 self.total_paragraphs = event["totalParagraphs"]
                 self.paragraph_text = event["paragraphText"]
                 self.error_message = ""
+                # Audio exists, so the Sidecar answered: a startup failure
+                # banner is stale now (it may have been started by hand after
+                # the App gave up on it).
+                self.sidecar_starting = False
+                self.sidecar_failed = False
+                self.sidecar_message = ""
         elif etype == "PLAYBACK_STATE":
             with self._lock:
                 self.playback_state = event["state"]
