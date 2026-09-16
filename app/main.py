@@ -26,6 +26,7 @@ CONFIG_PATH = Path.home() / "AppData" / "Roaming" / "reading-web" / "config.json
 READERABLE_JS = (WEB_DIR / "readerable.js").read_text(encoding="utf-8")
 CONTENT_JS = (WEB_DIR / "content.js").read_text(encoding="utf-8")
 PLAYER_BAR_CSS = (WEB_DIR / "player-bar.css").read_text(encoding="utf-8")
+ADDRESSBAR_JS = (WEB_DIR / "addressbar.js").read_text(encoding="utf-8")
 
 _main_window = None
 
@@ -54,6 +55,7 @@ def inject_content_script(window) -> None:
         "(function(){const s=document.createElement('style'); s.id='vn-tts-style'; "
         f"s.textContent = {json.dumps(PLAYER_BAR_CSS)}; document.head.appendChild(s);}})()"
     )
+    window.evaluate_js(ADDRESSBAR_JS)
     # readerable.js must run first -- content.js's genericExtract() calls
     # isProbablyReaderable() at call time and expects it already defined.
     window.evaluate_js(READERABLE_JS)
