@@ -678,7 +678,7 @@ class TestAudioPlayer(unittest.TestCase):
     def test_set_rate_restarts_playback_from_elapsed_position(self, mock_sd):
         player = AudioPlayer(on_finished=lambda: None)
         player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
-        with patch("audio_player.time.monotonic", side_effect=[0.0, 0.5]):
+        with patch("audio_player.time.monotonic", side_effect=[0.0, 0.5, 0.5]):
             player.play(rate=1.0)
             player.set_rate(2.0)
         # second play() call should start partway through the buffer, not at 0
@@ -1635,7 +1635,7 @@ git commit -m "feat: add Options window with adapter/settings CRUD"
 - Create: `app/README.md`
 
 **Interfaces:**
-- Consumes: `SidecarManager` (Task 1), `Config` (Task 2), `SidecarClient` (Task 4), `AudioPlayer` (Task 5), `PlaybackEngine` (Task 6), `app/web/content.js` + `player-bar.css` (Task 7), `Api` (Task 8, 9), `app/web/options.html` (Task 9).
+- Consumes: `SidecarManager` (Task 1), `Config` (Task 2), `SidecarClient` (Task 4), `AudioPlayer` (Task 5), `PlaybackEngine` (Task 6), `app/web/content.js` + `player-bar.css` + `readerable.js` (Task 7), `Api` (Task 8, 9), `app/web/options.html` (Task 9).
 - Produces: the runnable app (`python main.py`). Nothing later consumes this -- it's the composition root.
 
 No automated test -- this file only wires already-tested components together (dependency injection), and the composed result (a real window, real audio device, real Sidecar subprocess) can only be meaningfully verified by running it. Verified in Step 4's manual smoke test.
@@ -1650,6 +1650,7 @@ See docs/adr/0009-standalone-app-replaces-extension.md.
 """
 import json
 import sys
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -1667,6 +1668,7 @@ REPO_DIR = APP_DIR.parent
 WEB_DIR = APP_DIR / "web"
 CONFIG_PATH = Path.home() / "AppData" / "Roaming" / "reading-web" / "config.json"
 
+READERABLE_JS = (WEB_DIR / "readerable.js").read_text(encoding="utf-8")
 CONTENT_JS = (WEB_DIR / "content.js").read_text(encoding="utf-8")
 PLAYER_BAR_CSS = (WEB_DIR / "player-bar.css").read_text(encoding="utf-8")
 
@@ -1695,6 +1697,9 @@ def inject_content_script(window) -> None:
         "(function(){const s=document.createElement('style'); s.id='vn-tts-style'; "
         f"s.textContent = {json.dumps(PLAYER_BAR_CSS)}; document.head.appendChild(s);}})()"
     )
+    # readerable.js must run first -- content.js's genericExtract() calls
+    # isProbablyReaderable() at call time and expects it already defined.
+    window.evaluate_js(READERABLE_JS)
     window.evaluate_js(CONTENT_JS)
 
 
@@ -1715,6 +1720,12 @@ if __name__ == "__main__":
         port=8934,
     )
     sidecar_manager.start()
+
+    def warn_if_sidecar_unhealthy():
+        if not sidecar_manager.wait_healthy():
+            print("Warning: Sidecar did not become healthy within the timeout.", file=sys.stderr)
+
+    threading.Thread(target=warn_if_sidecar_unhealthy, daemon=True).start()
 
     sidecar_client = SidecarClient(config.get("sidecarUrl"))
     audio_player = AudioPlayer(on_finished=lambda: None)  # PlaybackEngine overwrites on_finished
