@@ -26,10 +26,10 @@ class PlaybackEngine:
         self._rate = 1.0
         self._speaker = ""
         self._cache = {}
-        self._chapter_session_id = None
         self._playing = False
 
-    def load_chapter(self, chunks, paragraphs, chapter_session_id, speaker, rate) -> None:
+    def load_chapter(self, chunks, paragraphs, speaker, rate) -> None:
+        self._audio.stop()
         with self._lock:
             self._chunks = chunks
             self._paragraphs = paragraphs
@@ -37,7 +37,6 @@ class PlaybackEngine:
             self._generation += 1
             self._speaker = speaker
             self._rate = rate
-            self._chapter_session_id = chapter_session_id
             self._cache = {}
         self._prefetch()
 
@@ -131,4 +130,5 @@ class PlaybackEngine:
                 return
             self._index = target
             self._generation += 1
+        self._audio.stop()
         self.play_current()

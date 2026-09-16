@@ -218,5 +218,9 @@ window.__vnTtsChapterDone = function (autoNext) {
 
   storedNextAdapter = adapter;
   injectPlayerBar(init.defaultRate, init.speaker, init.autoNext, init.knownSpeakers);
-  window.pywebview.api.chapter_ready(paragraphs, adapter, document.title);
+  const result = await window.pywebview.api.chapter_ready(paragraphs, document.title);
+  if (result && result.autoStart) {
+    started = true;
+    playBtn.textContent = "⏸";
+  }
 })();

@@ -31,12 +31,22 @@ class TestApi(unittest.TestCase):
         self.assertIsNone(data["adapter"])
 
     def test_chapter_ready_builds_chunks_and_loads_playback_engine(self):
-        result = self.api.chapter_ready(["Câu một. Câu hai.", "Đoạn hai."], None, "My Chapter")
+        result = self.api.chapter_ready(["Câu một. Câu hai.", "Đoạn hai."], "My Chapter")
         self.playback.load_chapter.assert_called_once()
         args, kwargs = self.playback.load_chapter.call_args
         chunks = args[0]
         self.assertEqual(len(chunks), 3)
-        self.assertIn("chapterSessionId", result)
+        self.assertIn("autoStart", result)
+        self.assertFalse(result["autoStart"])
+
+    def test_chapter_ready_auto_starts_playback_when_pending(self):
+        self.api.set_pending_auto_start(True)
+        result = self.api.chapter_ready(["Câu một."], "My Chapter")
+        self.playback.play_current.assert_called_once()
+        self.assertTrue(result["autoStart"])
+        # the flag must be consumed, not sticky across chapters
+        result2 = self.api.chapter_ready(["Câu hai."], "Another Chapter")
+        self.assertFalse(result2["autoStart"])
 
     def test_start_playback_delegates_to_engine(self):
         self.api.start_playback()

@@ -2,8 +2,6 @@
 See docs/adr/0009-standalone-app-replaces-extension.md -- JS sends intents,
 this class (backed by Config and PlaybackEngine) owns all the state.
 """
-import time
-
 from chunker import build_paragraph_chunks
 from config import KNOWN_SPEAKERS
 
@@ -13,6 +11,7 @@ class Api:
         self._config = config
         self._playback = playback
         self._sidecar = sidecar_client
+        self._pending_auto_start = False
 
     def get_init_data(self, hostname: str) -> dict:
         return {
@@ -23,15 +22,21 @@ class Api:
             "knownSpeakers": KNOWN_SPEAKERS,
         }
 
-    def chapter_ready(self, paragraphs: list, next_adapter, title: str) -> dict:
+    def chapter_ready(self, paragraphs: list, title: str) -> dict:
         chunks = build_paragraph_chunks(paragraphs)
-        session_id = f"{title}-{time.time()}"
         self._playback.load_chapter(
-            chunks, paragraphs, session_id,
+            chunks, paragraphs,
             speaker=self._config.get("speaker"),
             rate=self._config.get("defaultRate"),
         )
-        return {"chapterSessionId": session_id}
+        auto_start = self._pending_auto_start
+        self._pending_auto_start = False
+        if auto_start:
+            self._playback.play_current()
+        return {"autoStart": auto_start}
+
+    def set_pending_auto_start(self, value: bool) -> None:
+        self._pending_auto_start = value
 
     def start_playback(self) -> None:
         self._playback.play_current()

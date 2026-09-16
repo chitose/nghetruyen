@@ -1,20 +1,19 @@
 # NgheTruyen
 
-A personal Chrome extension that reads Vietnamese web novels aloud, using a
+A personal Windows app that reads Vietnamese web novels aloud, using a
 local sidecar for text-to-speech. See [CONTEXT.md](CONTEXT.md) for terminology
 and [docs/adr/](docs/adr/) for why it's built this way.
 
-Single user, load-unpacked, never published (Q4) -- see
-[ADR-0008](docs/adr/0008-switch-to-vieneu-tts.md) for the current TTS engine
-and why it replaced the original choice.
+Single user, never published (Q4) -- see [ADR-0009](docs/adr/0009-standalone-app-replaces-extension.md)
+for why this is a standalone app instead of a Chrome extension, and
+[ADR-0008](docs/adr/0008-switch-to-vieneu-tts.md) for the current TTS engine.
 
 ## Setup
 
 1. **Sidecar** -- see [sidecar/README.md](sidecar/README.md). Native Windows
-   Python, no WSL2. Leave it running in a terminal while you read.
-2. **Extension** -- open `chrome://extensions`, enable Developer mode,
-   "Load unpacked", select the `extension/` folder. It runs on every site
-   (see ADR-0006) and asks for the corresponding broad permission.
+   Python, no WSL2.
+2. **App** -- see [app/README.md](app/README.md). Starts the Sidecar for you
+   and opens a window with the reader's Player Bar built in.
 3. Open a chapter and click ▶ on the bar in the bottom-right corner. The bar
    only appears where extraction actually found something to read. It also
    has a speed slider and a voice picker (populated live from the Sidecar's
@@ -22,7 +21,7 @@ and why it replaced the original choice.
 
 ## Configuration
 
-Right-click the extension icon → Options: same Sidecar URL, voice, and
+Open Options (see [app/README.md](app/README.md)): same Sidecar URL, voice, and
 default speed as the Player Bar (whichever you change last wins), plus the
 Adapter list (content/strip/next selectors per hostname) which only lives here.
 
@@ -44,7 +43,7 @@ By design, not by oversight -- see the ADRs for why:
 
 - No sentence highlighting, no reader view -- just play/pause and speed.
 - No audio caching -- chapters synthesize fresh each time.
-- No mid-chapter resume -- reopen the tab and press play.
+- No mid-chapter resume -- reopen the chapter and press play.
 - No engine fallback -- if the current engine's quality or the Sidecar breaks,
   swap the one call in `sidecar/server.py` (ADR-0003's whole point; already
   exercised once, see ADR-0008).

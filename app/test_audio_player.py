@@ -38,6 +38,24 @@ class TestAudioPlayer(unittest.TestCase):
         self.assertLess(len(played_array), 16000)  # started after frame 0
 
     @patch("audio_player.sd")
+    def test_set_rate_before_any_playback_does_not_crash(self, mock_sd):
+        player = AudioPlayer(on_finished=lambda: None)
+        player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
+        player.set_rate(1.5)  # never played yet -- must not raise
+        mock_sd.play.assert_not_called()
+
+    @patch("audio_player.sd")
+    def test_set_rate_while_paused_does_not_resume_playback(self, mock_sd):
+        player = AudioPlayer(on_finished=lambda: None)
+        player.load(_sine_wav_bytes(seconds=1.0, sr=16000))
+        with patch("audio_player.time.monotonic", side_effect=[0.0, 0.3]):
+            player.play(rate=1.0)
+            player.pause()
+        mock_sd.play.reset_mock()
+        player.set_rate(1.5)
+        mock_sd.play.assert_not_called()  # must stay paused, not silently resume
+
+    @patch("audio_player.sd")
     def test_pause_then_resume_continues_from_paused_position(self, mock_sd):
         player = AudioPlayer(on_finished=lambda: None)
         player.load(_sine_wav_bytes(seconds=1.0, sr=16000))

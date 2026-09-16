@@ -5,6 +5,7 @@ Sidecar automatically instead of the reader running it manually in a
 terminal (ADR-0001's "started manually" cost moves up one level).
 """
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -20,10 +21,17 @@ class SidecarManager:
     def start(self) -> None:
         if self._proc is not None:
             return
-        self._proc = subprocess.Popen(
-            [self.python_exe, "-m", "uvicorn", "server:app", "--port", str(self.port)],
-            cwd=self.cwd,
-        )
+        try:
+            self._proc = subprocess.Popen(
+                [self.python_exe, "-m", "uvicorn", "server:app", "--port", str(self.port)],
+                cwd=self.cwd,
+            )
+        except (FileNotFoundError, OSError) as err:
+            print(
+                f"Warning: failed to start the Sidecar ({err}). "
+                "Is sidecar/venv set up? See sidecar/README.md.",
+                file=sys.stderr,
+            )
 
     def wait_healthy(self, timeout: float = 60.0, interval: float = 0.5) -> bool:
         deadline = time.monotonic() + timeout

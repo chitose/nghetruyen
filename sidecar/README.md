@@ -19,9 +19,9 @@ platform workarounds -- `pip install vieneu` is the real, complete package.
 
 ## Pick a voice
 
-VieNeu-TTS ships 23 named voices. Set the voice from the extension's Player
-Bar or options page -- click "Fetch voices from sidecar" there while this is
-running (`GET /speakers` below) to see the current names and pick one.
+VieNeu-TTS ships 23 named voices. Set the voice from the App's Player Bar
+(it fetches the live list from `GET /speakers` automatically once the
+Sidecar is running) or the App's Options window.
 `DEFAULT_SPEAKER` in [server.py](server.py) (`Minh Quân`) is only the fallback
 used when a request doesn't specify one.
 
@@ -37,8 +37,9 @@ absolute path at creation time, so they break if the venv folder is ever
 moved or renamed after `pip install`. `python -m uvicorn` doesn't rely on that
 launcher at all.
 
-Leave this running while reading. The extension expects it at
-`http://localhost:8934` by default (also configurable on the options page).
+Leave this running while reading, or let the App spawn it for you. The App
+expects it at `http://localhost:8934` by default (also configurable in the
+Options window).
 
 ## Run in Docker (alternative to the venv)
 
@@ -47,7 +48,7 @@ cd sidecar
 docker compose up -d
 ```
 
-Same server, same port, same API -- the extension can't tell the difference.
+Same server, same port, same API -- the App can't tell the difference.
 The model persists in a named volume (`vieneu-cache`), so `docker compose up`
 after the first run doesn't re-download it. `docker compose logs -f` to watch
 startup; `docker compose down` to stop.
@@ -55,7 +56,7 @@ startup; `docker compose down` to stop.
 ## API
 
 - `POST /synthesize` with JSON `{"text": "...", "speaker": "Minh Quân"}`
-  (speaker optional) returns a WAV file. Always normal speed -- the extension
+  (speaker optional) returns a WAV file. Always normal speed -- the App
   controls playback rate itself
   ([ADR-0003](../docs/adr/0003-sentence-chunk-contract.md)).
 - `GET /speakers` returns `{"speakers": [...]}`.

@@ -43,6 +43,8 @@ def push_to_js(event: dict) -> None:
         _main_window.evaluate_js(f"window.__vnTtsError({json.dumps(event['message'])})")
     elif event["type"] == "CHAPTER_DONE":
         auto_next = config.get("autoNext")
+        if auto_next:
+            api.set_pending_auto_start(True)
         _main_window.evaluate_js(f"window.__vnTtsChapterDone({json.dumps(auto_next)})")
 
 
@@ -72,7 +74,7 @@ if __name__ == "__main__":
     sidecar_manager = SidecarManager(
         python_exe=str(REPO_DIR / "sidecar" / "venv" / "Scripts" / "python.exe"),
         cwd=str(REPO_DIR / "sidecar"),
-        port=8934,
+        port=urlparse(config.get("sidecarUrl")).port or 8934,
     )
     sidecar_manager.start()
 

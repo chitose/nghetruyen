@@ -62,6 +62,9 @@ class AudioPlayer:
         return int(elapsed * self._orig_sr * self._rate)
 
     def set_rate(self, rate: float) -> None:
+        if self._data is None or self._paused or self._start_time is None:
+            self._rate = rate
+            return
         new_start = self._offset_frames + self._played_frames()
         self.play(rate=rate, start_frame=new_start)
 

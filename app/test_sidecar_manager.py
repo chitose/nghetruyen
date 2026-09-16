@@ -58,6 +58,12 @@ class TestSidecarManager(unittest.TestCase):
         mgr.stop()  # must not raise
         mock_popen.assert_not_called()
 
+    @patch("sidecar_manager.subprocess.Popen", side_effect=FileNotFoundError("no such file"))
+    def test_start_handles_missing_python_exe_gracefully(self, mock_popen):
+        mgr = SidecarManager(python_exe="nonexistent-python.exe", cwd=".", port=8934)
+        mgr.start()  # must not raise
+        self.assertFalse(mgr.is_running)
+
 
 if __name__ == "__main__":
     unittest.main()
