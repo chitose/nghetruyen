@@ -131,8 +131,7 @@ join cannot click. See [ADR-0018](../docs/adr/0018-streaming-chunk-playback.md).
 
 What genuinely stays Windows-only: `window_group.py`'s Win32 ex-styles (Linux
 uses the X11 EWMH hints instead, and gets nothing on Wayland),
-`check_windows.py`, `make_icon.py`/`check_exe_icon.py`/`refresh_icon.ps1`, and
-`NgheTruyen.spec`.
+`check_windows.py`, `make_icon.py`, and `NgheTruyen.spec`.
 
 ### Linux
 
@@ -175,21 +174,12 @@ copy dist\NgheTruyen.exe .
 added as data, and `icon=assets/nghetruyen.ico` for the exe's own resources.
 That last one is what the taskbar and Explorer show; the two windows' icons and
 the chrome's favicon come from the same file at runtime
-([ADR-0015](../docs/adr/0015-app-icon.md)). `check_exe_icon.py` reads the built
-exe back and reports whether its icon resources match the asset:
-
-```bat
-venv\Scripts\python.exe check_exe_icon.py
-```
+([ADR-0015](../docs/adr/0015-app-icon.md)).
 
 A rebuild writes a new exe over the old one, and Explorer caches icons by path,
-so it can keep showing the previous icon even though the new one is in the file.
-`refresh_icon.ps1` clears that cache -- it stops and restarts Explorer, so it
-needs elevation:
-
-```bat
-powershell -ExecutionPolicy Bypass -File refresh_icon.ps1
-```
+so it can keep showing the previous icon even though the new one is in the
+file. Copying the exe to a new filename sidesteps that -- it is a path
+Explorer has never cached.
 
 It is `--windowed`, so there is no console. Warnings that would have gone
 there -- the Sidecar failing to start, the chrome not coming up -- are appended
