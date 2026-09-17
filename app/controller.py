@@ -380,8 +380,11 @@ class Controller:
     def play_pause(self) -> None:
         """First press starts the loaded Chapter; after that it pauses/resumes.
         A press at the end of a finished Chapter is a no-op rather than a
-        second auto-next."""
+        second auto-next. Also a no-op while the Sidecar is down: starting
+        would only replay the "unreachable" error (see playback.py)."""
         if not self.chapter_loaded or self.chapter_done:
+            return
+        if self.sidecar_starting or self.sidecar_failed:
             return
         if self.playback_state in ("playing", "paused"):
             self._playback.toggle_play()
@@ -456,7 +459,11 @@ class Controller:
                 self.playback_state = event["state"]
         elif etype == "ERROR":
             with self._lock:
-                self.playback_state = "paused"
+                # The PLAYBACK_STATE event PlaybackEngine sends right before
+                # this one already says whether anything was actually playing
+                # to pause ("paused") or not ("idle"); overriding it here used
+                # to force "paused" always, which made the next Play toggle
+                # (resume nothing) instead of retrying.
                 self.error_message = event["message"]
                 self.status = event["message"]
         elif etype == "CHAPTER_DONE":

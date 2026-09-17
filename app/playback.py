@@ -46,9 +46,34 @@ class PlaybackEngine:
             todo = [i for i in range(self._index, end) if i not in self._cache]
             speaker = self._speaker
         for i in todo:
-            future = self._executor.submit(self._sidecar.synthesize, self._chunks[i]["text"], speaker)
-            with self._lock:
-                self._cache[i] = future
+            self._submit(i, speaker)
+
+    def _submit(self, index: int, speaker: str):
+        """Submit a synthesize call and cache it, then wire up the purge.
+
+        The cache write happens before add_done_callback is attached, and
+        neither runs under self._lock: the callback can fire synchronously,
+        on this thread, the moment it is attached (the Future may already be
+        done by then) and it takes this same non-reentrant lock -- so the
+        write has to already be visible, not racing it.
+        """
+        future = self._executor.submit(self._sidecar.synthesize, self._chunks[index]["text"], speaker)
+        with self._lock:
+            self._cache[index] = future
+        future.add_done_callback(lambda f: self._drop_if_failed(index, f))
+        return future
+
+    def _drop_if_failed(self, index: int, future) -> None:
+        """A prefetch that fails while the Sidecar is still starting must not
+        poison that chunk forever: purged here, as soon as it fails, so the
+        next _prefetch() resubmits it -- rather than waiting for a Play to
+        stumble into the stale failure and replay it (this runs long before
+        anyone may have tried to play it at all)."""
+        if future.exception() is None:
+            return
+        with self._lock:
+            if self._cache.get(index) is future:
+                del self._cache[index]
 
     def play_current(self) -> None:
         with self._lock:
@@ -77,11 +102,17 @@ class PlaybackEngine:
         })
         self._notify({"type": "PLAYBACK_STATE", "state": "buffering"})
         if future is None:
-            future = self._executor.submit(self._sidecar.synthesize, chunk["text"], speaker)
+            future = self._submit(index, speaker)
         try:
             wav_bytes = future.result()
         except Exception as err:
-            self._notify({"type": "PLAYBACK_STATE", "state": "paused"})
+            # _drop_if_failed has already purged this from the cache (it runs
+            # as soon as the Future fails, before .result() raises here), so
+            # the next Play resubmits instead of replaying this failure.
+            # "idle", not "paused": nothing ever started, so the next Play
+            # must retry play_current() rather than toggle_play() resuming
+            # audio that was never loaded (see Controller.play_pause).
+            self._notify({"type": "PLAYBACK_STATE", "state": "idle"})
             self._notify({"type": "ERROR", "message": f"Sidecar unreachable: {err}"})
             return
         with self._lock:
@@ -99,9 +130,9 @@ class PlaybackEngine:
                 # status line as a failed Sidecar request.
                 self._playing = False
                 self._notify({"type": "ERROR", "message": f"Could not play audio: {err}"})
-                # ...and leave the App paused rather than claiming to play a
-                # chunk that never started.
-                self._notify({"type": "PLAYBACK_STATE", "state": "paused"})
+                # "idle", not "paused" -- same reasoning as the synthesis
+                # failure above: nothing ever started, so Play must retry.
+                self._notify({"type": "PLAYBACK_STATE", "state": "idle"})
                 return
             self._playing = True
         self._notify({"type": "PLAYBACK_STATE", "state": "playing"})

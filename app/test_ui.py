@@ -8,7 +8,7 @@ on (see docs/adr/0013-sidecar-startup-status.md).
 import unittest
 from types import SimpleNamespace
 
-from ui import status_text, window_toggle_text
+from ui import sidecar_icon_state, status_text, window_toggle_text
 
 
 def controller(**overrides):
@@ -76,6 +76,20 @@ class TestStatusText(unittest.TestCase):
     def test_ready_sidecar_leaves_error_and_status_alone(self):
         text = status_text(controller(status="No readable Chapter found on this Page."))
         self.assertEqual(text, "No readable Chapter found on this Page.")
+
+
+class TestSidecarIconState(unittest.TestCase):
+    def test_failed_outranks_starting(self):
+        self.assertEqual(
+            sidecar_icon_state(controller(sidecar_failed=True, sidecar_starting=True)),
+            "failed",
+        )
+
+    def test_starting_before_ready(self):
+        self.assertEqual(sidecar_icon_state(controller(sidecar_starting=True)), "starting")
+
+    def test_ready_once_neither_flag_is_set(self):
+        self.assertEqual(sidecar_icon_state(controller()), "ready")
 
 
 class TestWindowToggleText(unittest.TestCase):

@@ -9,7 +9,8 @@ console-less App (pythonw, or a PyInstaller --noconsole build) would otherwise
 make Windows allocate a visible console for it. It runs with CREATE_NO_WINDOW
 on Windows -- and with nothing extra elsewhere, where that problem does not
 exist (ADR-0017) -- while its output goes to sidecar.log instead, so startup
-errors stay readable.
+errors stay readable. The Controls strip's health icon (see ui.py) is what the
+reader watches instead of that window.
 
 `SidecarStartup` sits on top of `SidecarManager`: it drives the launch and
 reports how it went, so the chrome can show the reader what is happening

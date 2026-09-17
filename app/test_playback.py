@@ -122,7 +122,9 @@ class TestPlaybackEngine(unittest.TestCase):
         self.audio.load.assert_not_called()
         self.audio.play.assert_not_called()
 
-    def test_sidecar_error_notifies_error_and_paused(self):
+    def test_sidecar_error_notifies_error_and_idle(self):
+        # "idle", not "paused": nothing ever started, so the next Play must
+        # retry play_current() instead of toggle_play() resuming nothing.
         self.sidecar.synthesize.side_effect = RuntimeError("connection refused")
         engine = PlaybackEngine(self.sidecar, self.audio, notify=self.events.append)
         engine.load_chapter(CHUNKS, PARAGRAPHS, speaker="x", rate=1.0)
@@ -132,6 +134,42 @@ class TestPlaybackEngine(unittest.TestCase):
         types = [e["type"] for e in self.events]
         self.assertIn("ERROR", types)
         self.assertIn("Sidecar unreachable", self.events[[e["type"] for e in self.events].index("ERROR")]["message"])
+        last_state = [e for e in self.events if e["type"] == "PLAYBACK_STATE"][-1]
+        self.assertEqual(last_state["state"], "idle")
+
+    def test_the_first_play_succeeds_if_the_sidecar_recovers_before_anyone_clicks(self):
+        # The reported bug: Chapter load prefetches immediately, before the
+        # Sidecar answers; by the time the reader sees it turn healthy and
+        # presses Play, that first click must not replay the initial failure
+        # -- _drop_if_failed purges it in the background, with no Play
+        # involved at all.
+        self.sidecar.synthesize.side_effect = RuntimeError("connection refused")
+        engine = PlaybackEngine(self.sidecar, self.audio, notify=self.events.append)
+        engine.load_chapter(CHUNKS, PARAGRAPHS, speaker="x", rate=1.0)
+        time.sleep(0.05)  # the Sidecar was down for all of the initial prefetch
+        self.sidecar.synthesize.side_effect = None
+        self.sidecar.synthesize.return_value = b"WAVDATA"  # ... and now it is up
+        engine.play_current()
+        types = [e["type"] for e in self.events]
+        self.assertNotIn("ERROR", types)
+        self.audio.load.assert_called_with(b"WAVDATA")
+
+    def test_play_after_a_sidecar_error_retries_instead_of_replaying_it(self):
+        # A prefetch that failed while the Sidecar was still starting must not
+        # poison that chunk forever -- once it recovers, the next Play has to
+        # ask again rather than replay the cached failure.
+        self.sidecar.synthesize.side_effect = RuntimeError("connection refused")
+        engine = PlaybackEngine(self.sidecar, self.audio, notify=self.events.append)
+        engine.load_chapter(CHUNKS, PARAGRAPHS, speaker="x", rate=1.0)
+        time.sleep(0.05)
+        engine.play_current()
+        self.sidecar.synthesize.side_effect = None
+        self.sidecar.synthesize.return_value = b"WAVDATA"
+        self.events.clear()
+        engine.play_current()
+        types = [e["type"] for e in self.events]
+        self.assertNotIn("ERROR", types)
+        self.audio.load.assert_called_with(b"WAVDATA")
 
     def test_an_audio_device_that_refuses_to_play_is_reported_not_raised(self):
         # sounddevice raises PortAudioError with no output device, no
@@ -145,8 +183,9 @@ class TestPlaybackEngine(unittest.TestCase):
         message = self.events[types.index("ERROR")]["message"]
         self.assertIn("Could not play audio", message)
         self.assertIn("Invalid sample rate", message)
-        # ...and it must not claim to be playing.
-        self.assertEqual(self.events[-1], {"type": "PLAYBACK_STATE", "state": "paused"})
+        # ...and it must not claim to be playing, nor leave the chunk as if it
+        # were merely paused (nothing ever started, so Play must retry it).
+        self.assertEqual(self.events[-1], {"type": "PLAYBACK_STATE", "state": "idle"})
         self.assertFalse(self.engine._playing)
 
     def test_a_failing_audio_load_is_reported_too(self):

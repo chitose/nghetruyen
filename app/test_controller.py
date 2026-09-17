@@ -45,6 +45,9 @@ class TestController(unittest.TestCase):
             self.config, self.playback, self.sidecar, schedule_timer=self.scheduler,
         )
         self.controller.attach_content_window(self.window)
+        # Most tests are not about the Sidecar's own state; assume it is up
+        # unless a test says otherwise (it starts as "starting" by default).
+        self.controller.report_sidecar(READY)
 
     # --- Page reporting ------------------------------------------------------
 
@@ -134,6 +137,20 @@ class TestController(unittest.TestCase):
         self.playback.play_current.assert_not_called()
         self.playback.toggle_play.assert_not_called()
 
+    def test_play_pause_is_a_noop_while_the_sidecar_is_starting(self):
+        self.controller.chapter_ready(["Câu một."], "C")
+        self.controller.playback_state = "idle"
+        self.controller.report_sidecar(STARTING)
+        self.controller.play_pause()
+        self.playback.play_current.assert_not_called()
+
+    def test_play_pause_is_a_noop_while_the_sidecar_failed(self):
+        self.controller.chapter_ready(["Câu một."], "C")
+        self.controller.playback_state = "idle"
+        self.controller.report_sidecar(FAILED, "The Sidecar did not start.")
+        self.controller.play_pause()
+        self.playback.play_current.assert_not_called()
+
     def test_set_rate_persists_updates_engine_and_bumps_settings_revision(self):
         before = self.controller.settings_rev
         self.controller.set_rate(1.5)
@@ -197,8 +214,17 @@ class TestController(unittest.TestCase):
         self.controller.on_playback_event({"type": "PLAYBACK_STATE", "state": "playing"})
         self.assertEqual(self.controller.playback_state, "playing")
         self.controller.on_playback_event({"type": "ERROR", "message": "Sidecar unreachable"})
-        self.assertEqual(self.controller.playback_state, "paused")
         self.assertEqual(self.controller.error_message, "Sidecar unreachable")
+
+    def test_error_leaves_playback_state_to_the_preceding_playback_state_event(self):
+        # PlaybackEngine always sends its own PLAYBACK_STATE right before an
+        # ERROR -- "idle" when nothing ever started (so the next Play retries
+        # play_current()), "paused" when it did (so the next Play resumes it).
+        # ERROR must not override that with a hardcoded "paused" (see
+        # playback.py's two failure paths and play_pause's routing).
+        self.controller.on_playback_event({"type": "PLAYBACK_STATE", "state": "idle"})
+        self.controller.on_playback_event({"type": "ERROR", "message": "Sidecar unreachable"})
+        self.assertEqual(self.controller.playback_state, "idle")
 
     def test_chapter_done_auto_next_asks_the_page_to_advance(self):
         self.window.evaluate_js.return_value = True
@@ -560,9 +586,11 @@ class TestController(unittest.TestCase):
 
     def test_the_sidecar_starts_out_reported_as_starting(self):
         # main.py starts it before the chrome exists, so the chrome's first
-        # tick has to see "starting" rather than a blank status line.
-        self.assertTrue(self.controller.sidecar_starting)
-        self.assertFalse(self.controller.sidecar_failed)
+        # tick has to see "starting" rather than a blank status line. A fresh
+        # Controller, since setUp's own already moved past that first tick.
+        controller = Controller(self.config, self.playback, self.sidecar)
+        self.assertTrue(controller.sidecar_starting)
+        self.assertFalse(controller.sidecar_failed)
 
     def test_report_sidecar_ready_clears_the_starting_flag(self):
         self.controller.report_sidecar(READY)

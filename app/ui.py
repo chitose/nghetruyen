@@ -243,6 +243,19 @@ def status_text(controller) -> str:
     return controller.status
 
 
+SIDECAR_ICONS = {"starting": "🟡", "failed": "🔴", "ready": "🟢"}
+
+
+def sidecar_icon_state(controller) -> str:
+    """One of SIDECAR_ICONS's keys, so the strip has a health dot beside the
+    text -- the message already carries the detail, this is glanceable."""
+    if controller.sidecar_failed:
+        return "failed"
+    if controller.sidecar_starting:
+        return "starting"
+    return "ready"
+
+
 def window_toggle_text(controller) -> str:
     """What the Hide page / Show page button says.
 
@@ -352,6 +365,8 @@ def _chrome(controller) -> None:
             style_label = ui.label(controller.visualizer_style.title()).classes(
                 "viz-style text-xs opacity-60 w-20"
             )
+            sidecar_icon = ui.label("").classes("text-sm")
+            sidecar_icon.tooltip("Sidecar health")
             status_label = ui.label("").classes("text-sm opacity-80")
             # Only reachable while the Sidecar is down: it appears next to the
             # message saying so, and runs the startup watcher again.
@@ -418,12 +433,13 @@ def _chrome(controller) -> None:
                 speaker_select.options = list(dict.fromkeys([*result["speakers"], controller.speaker]))
                 speaker_select.update()
         play_button.text = PLAY_GLYPHS.get(controller.playback_state, "▶")
-        play_button.enabled = controller.playback_state != "buffering"
+        play_button.enabled = sidecar_up and controller.playback_state != "buffering"
         window_toggle.text = window_toggle_text(controller)
         rate_label.text = f"{controller.rate:.1f}x"
         if view["show_text"]:
             text_panel.text = controller.paragraph_text
         status_label.text = status_text(controller)
+        sidecar_icon.text = SIDECAR_ICONS[sidecar_icon_state(controller)]
 
     ui.timer(0.2, tick)
 
