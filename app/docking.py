@@ -1,111 +1,76 @@
-"""Keeps the Controls window docked under the reader window.
+"""Keeps the reader window docked above the Controls strip.
 
-The App is two OS windows (ADR-0010); this is what makes them read as one.
-The Controls window is frameless, the same width as the reader, and flush
-against its bottom edge, following every move and resize. When the reader is
-maximized it pins to the bottom of the screen instead of being pushed off it.
+The strip is the App's primary window (window_group.py makes the reader a
+tool window, so the strip is the one with the taskbar entry) and now a normal
+one -- fully resizable, freely moved by the user, with its own native title
+bar. The reader docks above it instead, matching its width, whenever the
+strip moves, resizes, or is maximized, or whenever the reader itself is shown
+or resized.
 
-Minimizing the reader no longer hides the Controls window: the strip is the
-window with the taskbar entry (window_group.py makes the reader the tool
-window instead), so it has to stay up for the App to still be reachable.
+Only the reader's x, y and width are the dock's business: its height is its
+own, whatever it was last resized to (natively, or restored from
+session.json). When docking it above the strip would push it off the top of
+`screen`, it pins to the screen's top edge instead and overlaps the strip --
+the mirror image of the old "pins to the screen's bottom edge" case, and for
+the same reason: nothing pushes a window off a screen it is already on.
 
-A frameless window has no native resize border, so the strip's height is
-whatever the reader last dragged its grip to (`Dock.set_height`, driven by the
-grip in `ui.py`); every later reposition keeps that height.
+`page_visible`, if given, is asked before every reposition and skipped on a
+`False`: pywebview's Windows backend moves and resizes a window with
+`SetWindowPos(..., SWP_SHOWWINDOW)`, which un-hides it as a side effect --
+so moving the strip while Hide page has the reader tucked away would show it
+again. Nothing is lost by skipping: the reader is already wherever it needs
+to be by the time Show page calls `reposition()` itself.
 """
 
-CONTROLS_HEIGHT = 176
-MIN_CONTROLS_HEIGHT = 96
-MAX_CONTROLS_HEIGHT = 640
 
+def page_bounds(strip, screen, height) -> tuple:
+    """Where the docked reader window belongs.
 
-def _clamp_height(height) -> int:
-    return max(MIN_CONTROLS_HEIGHT, min(int(height), MAX_CONTROLS_HEIGHT))
-
-
-def controls_bounds(content, screen, height=CONTROLS_HEIGHT):
-    """Where the docked Controls window belongs.
-
-    `content` and `screen` are (x, y, width, height) rectangles. The Controls
-    window keeps the reader's x and width and sits directly below it, unless
-    that would push it past the bottom of `screen` -- then it pins to the
-    screen's bottom edge and overlaps the reader (the maximized case).
+    `strip` and `screen` are (x, y, width, height) rectangles; `height` is
+    the reader's own. The reader keeps the strip's x and width and sits
+    directly above it, unless that would push it off the top of `screen` --
+    then it pins to the screen's top edge and overlaps the strip.
     """
-    content_x, content_y, content_width, content_height = content
+    strip_x, strip_y, strip_width, _strip_height = strip
     screen_x, screen_y, screen_width, screen_height = screen
-    y = max(screen_y, min(content_y + content_height, screen_y + screen_height - height))
-    return content_x, y, content_width, height
+    y = max(screen_y, min(strip_y - height, screen_y + screen_height - height))
+    return strip_x, y, strip_width, height
 
 
 class Dock:
-    """Positions the Controls window under the reader and keeps it there."""
+    """Positions the reader window above the strip and keeps it there."""
 
-    def __init__(self, content_window, controls_window, find_screen, height=CONTROLS_HEIGHT):
-        self._content = content_window
-        self._controls = controls_window
+    def __init__(self, strip_window, page_window, find_screen, page_visible=lambda: True):
+        self._strip = strip_window
+        self._page = page_window
         self._find_screen = find_screen
-        self.height = _clamp_height(height)
-        self._move_origin = None
-        self._floating = False  # True once the reader moves the strip by hand
+        self._page_visible = page_visible
 
-        # The reader drives the dock; the Controls window re-syncs once it is up.
-        content_window.events.shown += self.reposition
-        content_window.events.moved += self.reposition
-        content_window.events.resized += self.reposition
-        content_window.events.maximized += self.reposition
-        controls_window.events.shown += self.reposition
+        # The strip drives the dock; the reader re-syncs once it is up, and
+        # again on its own resize (which otherwise could leave it a different
+        # width than the strip).
+        strip_window.events.shown += self.reposition
+        strip_window.events.moved += self.reposition
+        strip_window.events.resized += self.reposition
+        strip_window.events.maximized += self.reposition
+        page_window.events.shown += self.reposition
+        page_window.events.resized += self.reposition
 
     def reposition(self, *_args) -> None:
-        """Attach the strip under the reader. The reader's own move/resize
-        events call this, which also re-attaches a strip moved by hand."""
-        self._floating = False
-        content = (
-            self._content.x, self._content.y,
-            self._content.width, self._content.height,
-        )
-        screen = self._find_screen(content[0], content[1])
+        """Attach the reader above the strip. Either window's own move/resize
+        events call this, which also re-attaches a reader moved by hand."""
+        if not self._page_visible():
+            return
+        strip = (self._strip.x, self._strip.y, self._strip.width, self._strip.height)
+        screen = self._find_screen(strip[0], strip[1])
         if screen is None:
-            # No screen info (headless/CI): still dock directly below.
-            screen = (content[0], 0, content[2], content[1] + content[3] + self.height)
-        x, y, width, height = controls_bounds(content, screen, self.height)
-        self._controls.move(x, y)
-        self._controls.resize(width, height)
-
-    def set_height(self, height) -> None:
-        """The reader dragged the grip here; remember it and apply it.
-
-        While the strip is floating (moved by hand) this resizes it in place.
-        Re-docking here is what used to yank the strip back down to the reader
-        the moment its grip was touched."""
-        try:
-            height = int(height)
-        except (TypeError, ValueError):
-            return
-        self.height = _clamp_height(height)
-        if self._floating:
-            self._controls.resize(self._controls.width, self.height)
-        else:
-            self.reposition()
-
-    def begin_move(self) -> None:
-        """The reader grabbed the title bar; remember where the strip started."""
-        self._move_origin = (self._controls.x, self._controls.y)
-
-    def move_by(self, dx, dy) -> None:
-        if self._move_origin is None:
-            return
-        try:
-            dx, dy = int(dx), int(dy)
-        except (TypeError, ValueError):
-            return
-        x, y = self._move_origin
-        self._controls.move(x + dx, y + dy)
-        self._floating = True
-
-    def end_move(self) -> None:
-        self._move_origin = None
+            # No screen info (headless/CI): still dock directly above.
+            screen = (strip[0], 0, strip[2], strip[1] + strip[3])
+        x, y, width, height = page_bounds(strip, screen, self._page.height)
+        self._page.move(x, y)
+        self._page.resize(width, height)
 
 
-def dock(content_window, controls_window, find_screen, height=CONTROLS_HEIGHT) -> Dock:
-    """Dock controls under content and keep it there."""
-    return Dock(content_window, controls_window, find_screen, height)
+def dock(strip_window, page_window, find_screen, page_visible=lambda: True) -> Dock:
+    """Dock page above strip and keep it there."""
+    return Dock(strip_window, page_window, find_screen, page_visible)

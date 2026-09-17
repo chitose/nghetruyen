@@ -28,15 +28,6 @@ DEFAULT_VISUALIZER_STYLE = VISUALIZER_STYLES[0]
 DEFAULT_JOIN_SHORT_PARAGRAPHS = False
 DEFAULT_SHORT_PARAGRAPH_WORDS = 8
 
-# VieNeu-TTS's built-in preset voices (ADR-0008). Static fallback shown
-# before the Sidecar's own /speakers responds.
-KNOWN_SPEAKERS = [
-    "Minh Đức", "Phạm Tuyên", "Thái Sơn", "Xuân Vĩnh", "Thanh Bình", "Trúc Ly",
-    "Ngọc Linh", "Đoan Trang", "Mai Anh", "Thục Đoan", "Minh Triết", "Thùy Dung",
-    "Quang Sơn", "Ngọc Trân", "Mỹ Duyên", "Quỳnh Anh", "Đức Trí", "Kim Thanh",
-    "Ngọc Huyền", "Adam", "Mạnh Dũng", "Minh Quân", "Anh Khôi",
-]
-
 DEFAULT_ADAPTERS = [
     {
         "hostname": "metruyenchu.co",

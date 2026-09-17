@@ -12,6 +12,10 @@ a = Analysis(
         # dependencies -- see ADR-0016 and ADR-0019.
         ('../sidecar/server.py', 'sidecar'),
         ('../sidecar/requirements.txt', 'sidecar'),
+        # Written by build.bat/release.yml from `git describe` right before
+        # this runs -- see version.py. Missing it is a build-setup error, not
+        # something to default around here.
+        ('VERSION', '.'),
     ],
     hiddenimports=[],
     hookspath=[],

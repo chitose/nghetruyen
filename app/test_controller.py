@@ -335,6 +335,20 @@ class TestController(unittest.TestCase):
     def test_show_window_without_a_window_is_safe(self):
         Controller(self.config, self.playback, self.sidecar).show_window()
 
+    def test_show_window_re_syncs_the_attached_dock(self):
+        # A window shown again after being hidden may not fire pywebview's
+        # own `shown` event a second time, so this does not rely on that.
+        dock = MagicMock()
+        self.controller.attach_dock(dock)
+        self.controller.toggle_window()
+        dock.reposition.assert_not_called()
+        self.controller.show_window()
+        dock.reposition.assert_called_once()
+
+    def test_show_window_without_a_dock_is_safe(self):
+        self.controller.toggle_window()
+        self.controller.show_window()
+
     def test_restore_last_page_defaults_on_and_is_in_settings(self):
         self.assertTrue(self.controller.restore_last_page)
         self.assertIn("restoreLastPage", self.controller.get_settings())
@@ -476,26 +490,6 @@ class TestController(unittest.TestCase):
         self.controller.skip(7)
         self.assertEqual(self.scheduler.scheduled, [])
 
-    # --- the chrome's dock controls -----------------------------------------
-
-    def test_dock_controls_delegate_to_the_dock(self):
-        dock = MagicMock()
-        self.controller.attach_dock(dock)
-        self.controller.set_dock_height(240)
-        self.controller.begin_dock_move()
-        self.controller.move_dock(5, -7)
-        self.controller.end_dock_move()
-        dock.set_height.assert_called_once_with(240)
-        dock.begin_move.assert_called_once()
-        dock.move_by.assert_called_once_with(5, -7)
-        dock.end_move.assert_called_once()
-
-    def test_dock_controls_without_a_dock_are_safe(self):
-        self.controller.set_dock_height(240)
-        self.controller.begin_dock_move()
-        self.controller.move_dock(5, -7)
-        self.controller.end_dock_move()
-
     def test_visualizer_levels_delegate_to_the_visualizer(self):
         visualizer = MagicMock()
         visualizer.snapshot.return_value = [0.1, 0.2]
@@ -505,15 +499,6 @@ class TestController(unittest.TestCase):
 
     def test_visualizer_levels_without_a_visualizer_are_none(self):
         self.assertIsNone(self.controller.visualizer_levels())
-
-    def test_quit_calls_the_attached_shutdown(self):
-        quit_fn = MagicMock()
-        self.controller.attach_quit(quit_fn)
-        self.controller.quit()
-        quit_fn.assert_called_once()
-
-    def test_quit_without_a_shutdown_is_safe(self):
-        self.controller.quit()
 
     # --- Options in the reader window ---------------------------------------
 

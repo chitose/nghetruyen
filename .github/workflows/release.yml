@@ -25,6 +25,8 @@ jobs:
         working-directory: app
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # git describe needs the tags, not just this commit
 
       - uses: actions/setup-python@v7
         with:
@@ -40,6 +42,12 @@ jobs:
 
       - name: Run the tests
         run: python -m unittest discover -s . -p "test_*.py"
+
+      # See version.py: read back from the exe, shown in the Controls strip.
+      # On a tag this is just the tag name (git describe on an exact tag
+      # prints it as-is), the same as build.bat produces locally.
+      - name: Write the version NgheTruyen.spec bundles
+        run: git describe --tags --always --dirty | Out-File -Encoding utf8 VERSION
 
       # The build app/README.md documents: NgheTruyen.spec, which is what lists
       # web/, assets/ and the exe's icon. Running it rather than passing flags

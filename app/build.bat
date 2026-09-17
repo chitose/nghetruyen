@@ -10,6 +10,10 @@ if not exist venv\Scripts\python.exe (
     exit /b 1
 )
 
+:: See version.py: read back from the exe, shown in the Controls strip.
+git describe --tags --always --dirty > VERSION 2>nul
+if errorlevel 1 echo dev> VERSION
+
 venv\Scripts\python.exe -m pip install pyinstaller || exit /b 1
 venv\Scripts\python.exe -m PyInstaller --noconfirm NgheTruyen.spec || exit /b 1
 

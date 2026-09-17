@@ -19,66 +19,6 @@ UI_HOST = "127.0.0.1"
 UI_PORT = 8935
 PLAY_GLYPHS = {"playing": "⏸", "buffering": "⏳"}
 
-# Dragging for the docked Controls window. It is frameless -- no native title
-# bar and no resize border -- so both affordances are drawn in the page:
-#   .dock-titlebar -> 'dock_move_start' / 'dock_move' / 'dock_move_end'
-#   .dock-grip     -> 'dock_resize' with the new height in pixels
-# They matter most when the reader window is hidden and the strip is alone.
-DOCK_DRAG_JS = """
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-  if (window.__dockDragInstalled) return;
-  window.__dockDragInstalled = true;
-  const INTERACTIVE = '.q-btn, button, input, select, textarea, a, .no-drag';
-  const emit = function (name, ...args) {
-    if (typeof emitEvent === 'function') emitEvent(name, ...args);
-  };
-  let resizing = false, startY = 0, startHeight = 0, lastHeight = 0;
-  let moving = false, startX = 0, moveY = 0, lastX = 0, lastY = 0;
-
-  document.addEventListener('mousedown', function (event) {
-    const target = event.target;
-    if (!target || !target.closest) return;
-    if (target.closest('.dock-grip')) {
-      resizing = true;
-      startY = event.screenY;
-      startHeight = window.innerHeight;
-      lastHeight = 0;
-      event.preventDefault();
-      return;
-    }
-    if (target.closest('.dock-titlebar') && !target.closest(INTERACTIVE)) {
-      moving = true;
-      startX = lastX = event.screenX;
-      moveY = lastY = event.screenY;
-      emit('dock_move_start');
-      event.preventDefault();
-    }
-  });
-
-  document.addEventListener('mousemove', function (event) {
-    if (resizing) {
-      const next = Math.round(startHeight + (event.screenY - startY));
-      if (Math.abs(next - lastHeight) < 4) return;
-      lastHeight = next;
-      emit('dock_resize', next);
-    } else if (moving) {
-      if (Math.abs(event.screenX - lastX) < 2 && Math.abs(event.screenY - lastY) < 2) return;
-      lastX = event.screenX;
-      lastY = event.screenY;
-      emit('dock_move', event.screenX - startX, event.screenY - moveY);
-    }
-  });
-
-  document.addEventListener('mouseup', function () {
-    if (moving) emit('dock_move_end');
-    resizing = false;
-    moving = false;
-  });
-});
-</script>
-"""
-
 
 # Draws one visualizer frame onto its canvas; Python pushes a call per frame via
 # ui.run_javascript, since the audio itself never reaches the browser. The
@@ -219,23 +159,11 @@ async def _in_thread(func, *args):
     return await asyncio.to_thread(func, *args)
 
 
-def _event_values(args, count=1):
-    """ui.on hands over whatever emitEvent sent, sometimes wrapped in a list."""
-    if isinstance(args, (list, tuple)):
-        values = list(args)
-    elif isinstance(args, dict):
-        values = [args.get("height")]
-    else:
-        values = [args]
-    values = values[:count]
-    return values + [None] * (count - len(values))
-
-
 def _speaker_options(controller) -> list:
-    options = list(controller.known_speakers)
-    if controller.speaker and controller.speaker not in options:
-        options.insert(0, controller.speaker)
-    return options
+    """The instant placeholder shown before the Sidecar's own /speakers
+    answers -- there is no baked-in list to fall back to, so it is just
+    whatever is already configured."""
+    return [controller.speaker] if controller.speaker else []
 
 
 def status_text(controller) -> str:
@@ -307,13 +235,6 @@ def _chrome(controller) -> None:
         "sidecar_ready": not (controller.sidecar_starting or controller.sidecar_failed),
     }
 
-    # Dragging the title bar moves the strip, the grip resizes it (see
-    # docking.Dock); both matter most when the reader window is hidden.
-    ui.on("dock_resize", lambda e: controller.set_dock_height(_event_values(e.args, 1)[0]))
-    ui.on("dock_move_start", lambda e: controller.begin_dock_move())
-    ui.on("dock_move", lambda e: controller.move_dock(*_event_values(e.args, 2)))
-    ui.on("dock_move_end", lambda e: controller.end_dock_move())
-    ui.add_body_html(DOCK_DRAG_JS)
     ui.add_body_html(VISUALIZER_JS)
 
     # Hardware Play/Pause, Next, and Previous Track keys, for whenever the
@@ -332,13 +253,6 @@ def _chrome(controller) -> None:
     ui.keyboard(on_key=handle_media_key)
 
     with ui.column().classes("w-full gap-1 p-2"):
-        # The strip's own title bar: drag it to move the window, ✕ to quit.
-        # A frameless window gets neither from the OS.
-        with ui.row().classes("dock-titlebar w-full items-center").style("cursor: move"):
-            ui.label("Nghe Truyện").classes("text-xs opacity-50")
-            close_button = ui.label("✕").classes("no-drag ml-auto cursor-pointer px-2 text-sm opacity-70")
-            close_button.on("click", lambda: _in_thread(controller.quit))
-
         # --- address bar ---
         with ui.row().classes("w-full items-center gap-2 no-wrap"):
             ui.button("←", on_click=lambda: _in_thread(controller.go_back)).props("flat dense")
@@ -425,19 +339,11 @@ def _chrome(controller) -> None:
         text_panel = ui.label("").classes("w-full whitespace-pre-wrap text-sm opacity-90")
         text_panel.set_visibility(False)
 
-        # The drag handle: fixed to the very bottom edge so it costs no layout
-        # height, whatever the window's current size.
-        ui.element("div").classes("dock-grip").style(
-            "position: fixed; left: 0; right: 0; bottom: 0; height: 8px; "
-            "cursor: row-resize; z-index: 2000; "
-            "background: rgba(255, 255, 255, 0.10); "
-            "border-top: 1px solid rgba(255, 255, 255, 0.22);"
-        )
-
     # Live voice list, off the event loop: the HTTP call runs in a thread and
     # the result is folded in on the next tick. Fetched again if it turns out
     # the Sidecar was not up yet (see tick), since the first attempt then only
-    # got as far as the static KNOWN_SPEAKERS fallback.
+    # got as far as _speaker_options' placeholder -- there is no baked-in
+    # list to fall back to.
     voices = {"result": None, "fetching": False}
 
     def fetch_voices() -> None:
@@ -538,6 +444,7 @@ def _options(controller) -> None:
         ui.label("Default speaker").classes("text-sm opacity-70")
         selected_speaker = {"value": settings["speaker"]}
         speaker_radios = []
+        speaker_column = ui.column().classes("gap-0 w-full")
 
         def select_speaker(name: str) -> None:
             selected_speaker["value"] = name
@@ -545,17 +452,47 @@ def _options(controller) -> None:
                 if other_name != name:
                     radio.value = None
 
-        with ui.column().classes("gap-0 w-full"):
-            for name in _speaker_options(controller):
-                with ui.row().classes("items-center w-full"):
-                    radio = ui.radio(
-                        {name: name}, value=name if name == settings["speaker"] else None,
-                        on_change=lambda e, name=name: e.value and select_speaker(name),
-                    ).props("dense")
-                    speaker_radios.append((name, radio))
-                    ui.button(
-                        "▶", on_click=lambda name=name: _in_thread(controller.preview_speaker, name),
-                    ).props("flat dense round").classes("ml-auto")
+        def render_speakers(names: list) -> None:
+            speaker_radios.clear()
+            speaker_column.clear()
+            with speaker_column:
+                for name in names:
+                    with ui.row().classes("items-center w-full"):
+                        radio = ui.radio(
+                            {name: name}, value=name if name == selected_speaker["value"] else None,
+                            on_change=lambda e, name=name: e.value and select_speaker(name),
+                        ).props("dense")
+                        speaker_radios.append((name, radio))
+                        ui.button(
+                            "▶", on_click=lambda name=name: _in_thread(controller.preview_speaker, name),
+                        ).props("flat dense round").classes("ml-auto")
+
+        render_speakers(_speaker_options(controller))
+
+        # The live list, off the event loop: the HTTP call runs in a thread and
+        # the result is applied on the next tick -- same reasoning as _chrome's
+        # fetch_voices, and for the same reason: NiceGUI elements have to be
+        # built from the UI's own context, not a bare background thread.
+        # There is no baked-in list to show meanwhile, only whatever was
+        # already configured (_speaker_options).
+        speaker_fetch = {"result": None}
+
+        def load_speakers() -> None:
+            speaker_fetch["result"] = controller.get_speakers()
+
+        threading.Thread(target=load_speakers, daemon=True).start()
+
+        def check_speakers() -> None:
+            result = speaker_fetch["result"]
+            if result is None:
+                return
+            speaker_fetch["result"] = None
+            speaker_timer.cancel()
+            if result.get("ok"):
+                names = list(dict.fromkeys([*result["speakers"], selected_speaker["value"]]))
+                render_speakers(names)
+
+        speaker_timer = ui.timer(0.2, check_speakers)
 
         rate = ui.number(
             "Default rate", value=float(settings["defaultRate"] or 1.0),

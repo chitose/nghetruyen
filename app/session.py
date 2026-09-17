@@ -1,17 +1,17 @@
 """What the App was doing last time, so it can pick up where it left off.
 
 Settings live in config.json (see config.py); this is the transient part: the
-Page the reader was on, where its window sat, how tall the dock was, and
-whether the reader was hidden behind the Controls strip. Written once on
-shutdown, read once on launch. See ADR-0011.
+Page the reader was on, where its window and the Controls strip's window
+sat, and whether the reader was hidden behind the strip. Written once on
+shutdown, read once on launch. See ADR-0011 and ADR-0020.
 """
 import json
 from pathlib import Path
 
 DEFAULTS = {
     "lastUrl": "",        # the Page the reader was showing
-    "readerBounds": None,  # [x, y, width, height]
-    "dockHeight": None,    # the Controls strip's height in pixels
+    "readerBounds": None,  # [x, y, width, height] -- only height matters now
+    "controlsBounds": None,  # [x, y, width, height], the strip's own
     "readerHidden": False,  # Hide page / Show page, as it was at close
 }
 
@@ -36,13 +36,6 @@ def restore_bounds(stored, screens, min_width=640, min_height=400):
                 and y < screen_y + screen_height and y + height > screen_y):
             return x, y, width, height
     return None
-
-
-def restore_dock_height(stored, default):
-    """The stored dock height, or `default` when it is missing or not a number."""
-    if isinstance(stored, (int, float)) and not isinstance(stored, bool):
-        return int(stored)
-    return default
 
 
 def restore_hidden(stored) -> bool:

@@ -38,21 +38,21 @@ instant. It starts the Sidecar automatically and opens two windows:
   is injected on every load to pull the Chapter out of the DOM; it draws no UI.
   It is a tool window (`window_group.py`), so Windows gives it no taskbar
   button and no Alt-Tab entry of its own -- the App looks like one window, and
-  that one window is the Controls strip below, which stays reachable even
-  while Hide page has tucked the reader away. `check_windows.py` reads those
-  styles back.
+  that one window is the Controls strip, which stays reachable even while Hide
+  page has tucked the reader away. `check_windows.py` reads those styles back.
+  Its own close button hides it (the same thing Hide page does) instead of
+  quitting the App -- the strip is what actually has to close for that.
 - **Nghe Truyện** -- the NiceGUI chrome: address bar, Player Bar (play/pause,
-  prev/next, speed, voice, auto-next, current-Paragraph toggle). It is
-  frameless and docked flush under the reader window, following its moves and
-  resizes via `docking.py`.
-  Drag its title bar to move it, the strip along its bottom edge to resize it,
-  and use Hide page / Show page to tuck the reader away while you keep
+  prev/next, speed, voice, auto-next, current-Paragraph toggle). It is the
+  App's primary window, fully resizable and freely moved; the reader docks
+  above it instead, matching its width, following every move and resize
+  (`docking.py`, [ADR-0020](../docs/adr/0020-strip-is-the-primary-resizable-window.md)).
+  Use Hide page / Show page to tuck the reader away while you keep
   listening -- which of the two it was survives a restart, and the ⚙ Options
   button brings the reader back rather than opening into a window you cannot
-  see. Its ✕ quits the app (so does closing either window). A small
-  audio visualizer next to the Player Bar shows the Chapter being read; the
-  ‹ › arrows cycle its style (bars, mirrored, wave, blocks), and the chosen
-  one is remembered in `config.json`.
+  see. A small audio visualizer next to the Player Bar shows the Chapter being
+  read; the ‹ › arrows cycle its style (bars, mirrored, wave, blocks), and the
+  chosen one is remembered in `config.json`.
   Play/Pause, Next Track, and Previous Track on the keyboard work too: as
   ordinary keydown events while either window has focus (`main.py`'s
   `MEDIA_KEYS_JS`, `ui.py`'s `ui.keyboard`), and system-wide via
@@ -92,8 +92,8 @@ Sidecar you start yourself is picked up too. See
 [ADR-0013](../docs/adr/0013-sidecar-startup-status.md) and
 [ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md).
 
-On shutdown the App saves the Page it was on, the reader window's bounds, the
-dock height, and whether the reader was hidden, to `session.json` beside
+On shutdown the App saves the Page it was on, both windows' bounds, and
+whether the reader was hidden, to `session.json` beside
 `config.json` -- `%APPDATA%\reading-web` on Windows, and
 `$XDG_DATA_HOME/reading-web` (falling back to `~/.local/share/reading-web`) on
 Linux, both from `platform_paths.data_dir()` -- and restores them next launch
@@ -177,9 +177,15 @@ cd app
 build.bat
 ```
 
-`build.bat` installs PyInstaller into the venv if it is not there yet, runs the
-build below, and copies the result over the exe in this directory -- close the
-App first if it is running, or the copy fails (the exe is locked while it is).
+`build.bat` writes `app/VERSION` from `git describe --tags --always --dirty`
+(falling back to `dev` when git is unavailable or this is not a checkout),
+installs PyInstaller into the venv if it is not there yet, runs the build
+below, and copies the result over the exe in this directory -- close the App
+first if it is running, or the copy fails (the exe is locked while it is).
+`version.py` reads that file back at startup and the Controls strip shows it
+next to the App's name; a source checkout has no `VERSION` (it is gitignored,
+written per build) and shows `dev`. `.github/workflows/release.yml` writes the
+same file the same way, so a release build shows its tag exactly.
 
 `NgheTruyen.spec` is the build: `--onefile --windowed`, `web/` and `assets/`
 added as data, and `icon=assets/nghetruyen.ico` for the exe's own resources.

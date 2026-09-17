@@ -6,7 +6,6 @@ from session import (
     DEFAULTS,
     Session,
     restore_bounds,
-    restore_dock_height,
     restore_hidden,
 )
 from tempdirs import ephemeral_dir
@@ -31,7 +30,7 @@ class TestSession(unittest.TestCase):
 
     def test_non_dict_json_gives_defaults(self):
         self.path.write_text("[1, 2, 3]", encoding="utf-8")
-        self.assertIsNone(Session(self.path).get("dockHeight"))
+        self.assertIsNone(Session(self.path).get("controlsBounds"))
 
     def test_unknown_keys_are_ignored_when_saved(self):
         self.path.write_text(json.dumps({"lastUrl": "x", "junk": 1}), encoding="utf-8")
@@ -44,13 +43,13 @@ class TestSession(unittest.TestCase):
         session = Session(self.path)
         session.update(
             lastUrl="https://x.test/c1", readerBounds=[1, 2, 800, 600],
-            dockHeight=200, readerHidden=True,
+            controlsBounds=[1, 602, 800, 200], readerHidden=True,
         )
         session.save()
         reloaded = Session(self.path)
         self.assertEqual(reloaded.get("lastUrl"), "https://x.test/c1")
         self.assertEqual(reloaded.get("readerBounds"), [1, 2, 800, 600])
-        self.assertEqual(reloaded.get("dockHeight"), 200)
+        self.assertEqual(reloaded.get("controlsBounds"), [1, 602, 800, 200])
         self.assertTrue(reloaded.get("readerHidden"))
 
     def test_save_creates_the_parent_directory(self):
@@ -88,15 +87,6 @@ class TestRestoreBounds(unittest.TestCase):
             restore_bounds([100, 50, 200, 100], self.SCREENS, min_width=200, min_height=100),
             (100, 50, 200, 100),
         )
-
-
-class TestRestoreDockHeight(unittest.TestCase):
-    def test_uses_the_stored_number(self):
-        self.assertEqual(restore_dock_height(240, 176), 240)
-
-    def test_falls_back_for_missing_or_bad_values(self):
-        for stored in (None, "tall", True):
-            self.assertEqual(restore_dock_height(stored, 176), 176)
 
 
 class TestRestoreHidden(unittest.TestCase):

@@ -2,14 +2,15 @@
 """Entry point.
 
 The App is two windows. The NiceGUI chrome (address bar + Player Bar +
-Options) is served on localhost by `run_ui` and shown in a frameless Controls
-window docked under the reader; the native Web View renders the Chapter and
-runs content.js for extraction. Both talk to the one Controller, which owns
-playback state -- see docs/adr/0010-nicegui-chrome.md.
+Options) is served on localhost by `run_ui` and shown in the Controls
+window, the App's primary, fully resizable window; the native Web View
+renders the Chapter and docks above it, matching its width (docking.py, see
+ADR-0020). Both talk to the one Controller, which owns playback state -- see
+docs/adr/0010-nicegui-chrome.md.
 
-Where the App was last time (the Page, the reader's bounds, the dock height,
-and whether the reader was hidden behind the strip) is read from session.json
-on launch and written back on shutdown -- see
+Where the App was last time (the Page, the reader's and the strip's bounds,
+and whether the reader was hidden behind the strip) is read from
+session.json on launch and written back on shutdown -- see
 docs/adr/0011-restore-session-on-launch.md. `SidecarStartup` provisions the
 Sidecar's venv when it is missing and spawns it, reporting progress to the
 startup window and then to the chrome, so startup is neither silent nor a
@@ -37,16 +38,17 @@ from api import Api
 from audio_player import AudioPlayer
 from config import Config
 from controller import Controller
-from docking import CONTROLS_HEIGHT, dock
+from docking import dock
 from icon import app_icon_path
 from media_hotkeys import start as start_media_hotkeys
 from playback import PlaybackEngine
-from session import Session, restore_bounds, restore_dock_height, restore_hidden
+from session import Session, restore_bounds, restore_hidden
 from sidecar_client import SidecarClient
 from sidecar_env import extract_bundled_sidecar, find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
 from splash import make_splash
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
+from version import app_version
 from visualizer import Visualizer
 from window_group import as_tool_window
 
@@ -70,6 +72,9 @@ WEB_DIR = BUNDLE_DIR / "web"
 # a real file on disk because both pywebview and NiceGUI load it by path rather
 # than from the bundle.
 ICON_PATH = app_icon_path(BUNDLE_DIR)
+# Written by build.bat/release.yml right before the exe is built; "dev" for a
+# source checkout, which never has one. See version.py.
+APP_VERSION = app_version(BUNDLE_DIR)
 # The data folder keeps its original name on Windows: config.json and
 # session.json live there, and renaming it would strand an existing install's
 # settings. On Linux there is no such install, so this is the XDG location
@@ -115,6 +120,14 @@ CONTENT_WIDTH = 1200
 CONTENT_HEIGHT = 760
 MIN_CONTENT_WIDTH = 640
 MIN_CONTENT_HEIGHT = 400
+# The Controls strip's own defaults, now that it is a normal, fully resizable
+# window rather than one sized to match the reader. Its minimum width is the
+# reader's: docking.py always matches them, and letting the strip go narrower
+# than the reader can would either desync the two or fight the reader's own
+# min_size.
+CONTROLS_HEIGHT = 176
+MIN_CONTROLS_WIDTH = MIN_CONTENT_WIDTH
+MIN_CONTROLS_HEIGHT = 120
 
 CHROME_BASE_URL = f"http://{UI_HOST}:{UI_PORT}/"
 
@@ -177,16 +190,39 @@ def find_screen(x: int, y: int):
     return (primary.x, primary.y, primary.width, primary.height) if primary else None
 
 
+def watch_bounds(window, stored) -> dict:
+    """A window's last known (x, y, width, height), updated live: by shutdown
+    the window may already be gone, and reading it then would be too late.
+    `stored` seeds it from session.json until the window's own events report
+    in (a `dict` rather than a plain value so the closure below can write to
+    it without a `nonlocal`)."""
+    state = {"value": list(stored) if isinstance(stored, (list, tuple)) else None}
+
+    def track(*_args) -> None:
+        try:
+            state["value"] = [window.x, window.y, window.width, window.height]
+        except Exception:
+            pass
+
+    window.events.shown += track
+    window.events.moved += track
+    window.events.resized += track
+    return state
+
+
 def initial_layout():
-    """Reader (x, y, width, height), sized so the docked Controls window fits."""
+    """(controls_x, controls_y, controls_width, controls_height, content_height)
+    for a fresh install, with nothing in session.json to restore yet: the
+    strip sized and centered so the reader, docked above it, fits on screen
+    too."""
     screen = _primary_screen()
     if screen is None:
-        return 80, 40, CONTENT_WIDTH, CONTENT_HEIGHT
-    width = min(CONTENT_WIDTH, max(MIN_CONTENT_WIDTH, screen.width - 40))
-    height = min(CONTENT_HEIGHT, max(MIN_CONTENT_HEIGHT, screen.height - CONTROLS_HEIGHT - 80))
+        return 80, 40 + CONTENT_HEIGHT, CONTENT_WIDTH, CONTROLS_HEIGHT, CONTENT_HEIGHT
+    width = min(CONTENT_WIDTH, max(MIN_CONTROLS_WIDTH, screen.width - 40))
+    content_height = min(CONTENT_HEIGHT, max(MIN_CONTENT_HEIGHT, screen.height - CONTROLS_HEIGHT - 80))
     x = screen.x + (screen.width - width) // 2
-    y = screen.y + max(20, (screen.height - (height + CONTROLS_HEIGHT)) // 2)
-    return x, y, width, height
+    top = screen.y + max(20, (screen.height - (content_height + CONTROLS_HEIGHT)) // 2)
+    return x, top + content_height, width, CONTROLS_HEIGHT, content_height
 
 
 if __name__ == "__main__":
@@ -220,7 +256,7 @@ if __name__ == "__main__":
         sidecar_client, audio_player,
         notify=lambda event: controller.on_playback_event(event),
     )
-    controller = Controller(config, playback, sidecar_client)
+    controller = Controller(config, playback, sidecar_client, version=APP_VERSION)
     controller.attach_visualizer(Visualizer(audio_player))
     controller.attach_open_sidecar_log(
         lambda: platform_paths.open_in_default_app(sidecar_manager.log_path)
@@ -254,12 +290,28 @@ if __name__ == "__main__":
     if not wait_for_ui(UI_PORT):
         warn("Warning: the NiceGUI chrome did not come up; the Controls window may be blank.")
 
-    content_x, content_y, content_width, content_height = (
+    (
+        default_controls_x, default_controls_y,
+        default_controls_width, default_controls_height,
+        default_content_height,
+    ) = initial_layout()
+    controls_x, controls_y, controls_width, controls_height = (
+        restore_bounds(
+            session.get("controlsBounds"), _screen_rects(),
+            min_width=MIN_CONTROLS_WIDTH, min_height=MIN_CONTROLS_HEIGHT,
+        ) or (default_controls_x, default_controls_y, default_controls_width, default_controls_height)
+    )
+    # Only the reader's own height is its business now (docking.py positions
+    # it above the strip, matching the strip's x and width); a restored
+    # readerBounds is read just for that.
+    _, _, _, content_height = (
         restore_bounds(
             session.get("readerBounds"), _screen_rects(),
             min_width=MIN_CONTENT_WIDTH, min_height=MIN_CONTENT_HEIGHT,
-        ) or initial_layout()
+        ) or (0, 0, 0, default_content_height)
     )
+    content_x, content_y, content_width = controls_x, controls_y - content_height, controls_width
+
     start_url = controller.start_url
     if controller.restore_last_page:
         start_url = session.get("lastUrl") or start_url
@@ -270,6 +322,16 @@ if __name__ == "__main__":
     # `hidden=True` still runs the window's `shown` handlers, so the dock, the
     # bounds tracking, and the startup window all behave as usual.
     reader_hidden = restore_hidden(session.get("readerHidden"))
+
+    # The App's primary window: fully resizable and freely moved, a normal
+    # window rather than the frameless strip it used to be. The reader docks
+    # above it instead, matching its width (docking.py) -- see ADR-0020.
+    controls_window = webview.create_window(
+        f"Nghe Truyện {APP_VERSION}",
+        url=f"http://{UI_HOST}:{UI_PORT}/",
+        x=controls_x, y=controls_y, width=controls_width, height=controls_height,
+        min_size=(MIN_CONTROLS_WIDTH, MIN_CONTROLS_HEIGHT),
+    )
 
     content_window = webview.create_window(
         "Nghe Truyện -- Reader",
@@ -282,16 +344,13 @@ if __name__ == "__main__":
     controller.attach_content_window(content_window, hidden=reader_hidden)
     content_window.events.loaded += lambda: inject_content_script(content_window)
 
-    # Frameless and not draggable: it reads as part of the reader window, and
-    # docking.dock() keeps it glued under the reader from here on.
-    dock_height = restore_dock_height(session.get("dockHeight"), CONTROLS_HEIGHT)
-    controls_window = webview.create_window(
-        "Nghe Truyện",
-        url=f"http://{UI_HOST}:{UI_PORT}/",
-        x=content_x, y=content_y + content_height, width=content_width, height=dock_height,
-        frameless=True, easy_drag=False,
+    # Moving/resizing a pywebview window on Windows un-hides it as a side
+    # effect (SetWindowPos with SWP_SHOWWINDOW) -- page_visible is what stops
+    # a strip move from bringing a Hide-page'd reader back. See docking.py.
+    dock_state = dock(
+        controls_window, content_window, find_screen,
+        page_visible=lambda: controller.window_visible,
     )
-    dock_state = dock(content_window, controls_window, find_screen, height=dock_height)
     controller.attach_dock(dock_state)
 
     # Windows should show the pair as one window: the reader becomes a tool
@@ -305,34 +364,32 @@ if __name__ == "__main__":
         content_window, on_warning=warn
     )
 
-    # Geometry is tracked as it changes, because by shutdown the window may
-    # already be gone and reading it there would be too late.
-    stored_bounds = session.get("readerBounds")
-    bounds = {"value": list(stored_bounds) if isinstance(stored_bounds, (list, tuple)) else None}
+    # The reader's own close button hides it instead of quitting the App --
+    # the same thing Hide page already does, and returning False cancels the
+    # close itself (see pywebview's Event.set()) rather than destroying the
+    # window. The strip has no such handler: closing it is what actually
+    # exits, same as before -- see ADR-0020.
+    def on_reader_closing():
+        controller.toggle_window()
+        return False
 
-    def track_bounds(*_args):
-        try:
-            bounds["value"] = [
-                content_window.x, content_window.y,
-                content_window.width, content_window.height,
-            ]
-        except Exception:
-            pass
+    content_window.events.closing += on_reader_closing
 
-    content_window.events.shown += track_bounds
+    # Geometry is tracked as it changes, because by shutdown either window
+    # may already be gone and reading it then would be too late.
+    reader_bounds = watch_bounds(content_window, session.get("readerBounds"))
+    controls_bounds_state = watch_bounds(controls_window, session.get("controlsBounds"))
     # The startup window has done its job the moment the reader is on screen:
     # from here the Controls strip is the status line.
     content_window.events.shown += lambda *_args: splash.close()
-    content_window.events.moved += track_bounds
-    content_window.events.resized += track_bounds
 
     shutting_down = {"done": False}
 
     def save_session():
         session.update(
             lastUrl=controller.current_url or session.get("lastUrl") or "",
-            readerBounds=bounds["value"],
-            dockHeight=dock_state.height,
+            readerBounds=reader_bounds["value"],
+            controlsBounds=controls_bounds_state["value"],
             readerHidden=not controller.window_visible,
         )
         try:
@@ -341,8 +398,9 @@ if __name__ == "__main__":
             warn(f"Warning: could not save the session ({err}).")
 
     def on_closed():
-        # Closing either window quits the App -- the reader can be hidden from
-        # the chrome, so the Controls window is the only way out at that point.
+        # Closing the strip quits the App -- the reader hides instead of
+        # closing (on_reader_closing above), so the strip is the one window
+        # left that can actually end things.
         if shutting_down["done"]:
             return
         shutting_down["done"] = True
@@ -361,7 +419,6 @@ if __name__ == "__main__":
 
     content_window.events.closed += on_closed
     controls_window.events.closed += on_closed
-    controller.attach_quit(on_closed)  # the chrome's close button
 
     # Play/Pause, Next, and Previous Track, system-wide -- the same three keys
     # MEDIA_KEYS_JS and ui.py's ui.keyboard already handle while a window has

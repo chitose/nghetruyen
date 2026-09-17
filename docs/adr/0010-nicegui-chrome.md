@@ -1,10 +1,14 @@
 # The App's chrome is NiceGUI in its own window; the Page keeps a native Web View
 
-**Amended:** the pair now presents as one window to Windows. The strip is marked
-as a tool window (`app/window_group.py`, applied from `main.py` when the
-Controls window appears), which takes away its taskbar button and its Alt-Tab
-entry, so the App shows up once. Nothing else below changes -- it is still two
-native windows, and the iframe argument still rules out folding them into one.
+**Amended:** the pair now presents as one window to Windows. The reader is
+marked as a tool window (`app/window_group.py`, applied from `main.py` when
+it appears), which takes away its taskbar button and its Alt-Tab entry, so
+the App shows up once -- as the strip. It was the strip that lost its
+taskbar entry at first, which meant a reader that started hidden (Hide page,
+ADR-0011) left the App unreachable with no taskbar entry at all; the reader
+is the one with nothing to lose now. Nothing else below changes -- it is
+still two native windows, and the iframe argument still rules out folding
+them into one.
 
 Ownership was tried and rejected: giving the strip the reader as its owner keeps
 it above the reader and destroys it with it, but Windows then disposes of the
@@ -73,10 +77,17 @@ App's injected JS renders the Player Bar, and it adds `nicegui` to
 `app/requirements.txt`.
 
 **Amended by [ADR-0017](0017-linux-launcher.md):** the pair reads as one window
-by the same mechanism -- the strip is marked as a tool window -- but the shell
+by the same mechanism -- the reader is marked as a tool window -- but the shell
 is a different shell. On Linux `window_group.py` sets the EWMH
 `_NET_WM_STATE_SKIP_TASKBAR`/`_SKIP_PAGER` hints through `libX11` instead of
 Win32 ex-styles, and on a Wayland session there is no X11 window ID to set them
-on, so the strip keeps its own taskbar entry and the two windows are listed
-separately. Everything else above -- two windows, the dock, frameless, the
+on, so the reader keeps its own taskbar entry and the two windows are listed
+separately. Everything else above -- two windows, the dock, the
 single-source-of-truth rule -- is unchanged and platform-neutral.
+
+**Amended by [ADR-0020](0020-strip-is-the-primary-resizable-window.md):** the
+strip is no longer frameless, and the dock runs the other way -- it is the
+primary, fully resizable window now, and the reader docks above it instead of
+the strip docking below the reader. The strip's own title bar and close
+button are the OS's now, not drawn in the page, and closing the reader hides
+it (the same thing Hide page does) rather than quitting the App.

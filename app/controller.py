@@ -16,7 +16,6 @@ from config import (
     DEFAULT_SHORT_PARAGRAPH_WORDS,
     DEFAULT_START_URL,
     DEFAULT_VISUALIZER_STYLE,
-    KNOWN_SPEAKERS,
     VISUALIZER_STYLES,
 )
 from sidecar_manager import FAILED as SIDECAR_FAILED
@@ -40,18 +39,18 @@ def _start_timer(delay: float, callback) -> "threading.Timer":
 
 
 class Controller:
-    def __init__(self, config, playback, sidecar_client, schedule_timer=None):
+    def __init__(self, config, playback, sidecar_client, schedule_timer=None, version="dev"):
         self._config = config
         self._playback = playback
         self._sidecar = sidecar_client
+        self.version = version  # main.py's version.app_version(), for the chrome
         self._content_window = None
         self._lock = threading.Lock()
         self._pending_auto_start = False
         self._reader_url = ""  # last real Page, so Options can hand the reader back
         self._returning_to_reader = False
         self._skip_chapter_reload = False
-        self._dock = None  # docking.Dock, for resizing/moving the Controls strip
-        self._quit = None  # main.py's shutdown, for the chrome's close button
+        self._dock = None  # docking.Dock, so Show page can re-sync the reader
         self._sidecar_retry = None  # main.py's SidecarStartup.start, for Retry
         self._open_sidecar_log = None  # main.py's log opener, for the chrome's log button
         self._visualizer = None  # visualizer.Visualizer, for the chrome's bars
@@ -103,25 +102,11 @@ class Controller:
         self.window_visible = not hidden
 
     def attach_dock(self, dock) -> None:
-        """The docked Controls strip, so the chrome can resize and move it.
-        main.py passes the docking.Dock."""
+        """main.py's docking.Dock, so Show page can re-sync the reader above
+        the strip immediately -- a window already created hidden may not
+        fire `shown` again just because `.show()` is called, so this does
+        not rely on that."""
         self._dock = dock
-
-    def set_dock_height(self, height) -> None:
-        if self._dock is not None:
-            self._dock.set_height(height)
-
-    def begin_dock_move(self) -> None:
-        if self._dock is not None:
-            self._dock.begin_move()
-
-    def move_dock(self, dx, dy) -> None:
-        if self._dock is not None:
-            self._dock.move_by(dx, dy)
-
-    def end_dock_move(self) -> None:
-        if self._dock is not None:
-            self._dock.end_move()
 
     def attach_visualizer(self, visualizer) -> None:
         """main.py's audio Visualizer, for the control window's bars."""
@@ -144,14 +129,6 @@ class Controller:
         index = styles.index(self.visualizer_style)
         self._config.set("visualizerStyle", styles[(index + step) % len(styles)])
         self.settings_rev += 1
-
-    def attach_quit(self, quit_fn) -> None:
-        """main.py's shutdown, so the chrome's close button can quit the App."""
-        self._quit = quit_fn
-
-    def quit(self) -> None:
-        if self._quit is not None:
-            self._quit()
 
     def attach_sidecar_retry(self, retry_fn) -> None:
         """main.py's SidecarStartup.start, for the chrome's Retry button."""
@@ -182,10 +159,6 @@ class Controller:
             self.sidecar_message = message
             if state in (SIDECAR_STARTING, SIDECAR_READY):
                 self.error_message = ""
-
-    @property
-    def known_speakers(self) -> list:
-        return KNOWN_SPEAKERS
 
     # --- config, for the chrome's Options page -------------------------------
 
@@ -259,8 +232,9 @@ class Controller:
         return self._playback.prefetching
 
     def get_speakers(self) -> dict:
-        """Live voice list from the Sidecar; the chrome falls back to the
-        baked-in KNOWN_SPEAKERS when this says ok is False."""
+        """Live voice list from the Sidecar; callers keep whatever they had
+        (typically just the configured speaker) when this says ok is False,
+        since there is no baked-in list to fall back to."""
         try:
             return {"ok": True, "speakers": self._sidecar.speakers()}
         except Exception:
@@ -287,7 +261,6 @@ class Controller:
             "defaultRate": self._config.get("defaultRate"),
             "speaker": self._config.get("speaker"),
             "autoNext": self._config.get("autoNext"),
-            "knownSpeakers": KNOWN_SPEAKERS,
         }
 
     def page_loaded(self, url: str, title: str, paragraph_count: int) -> None:
@@ -377,6 +350,8 @@ class Controller:
             return
         self._content_window.show()
         self.window_visible = True
+        if self._dock is not None:
+            self._dock.reposition()
 
     def open_options(self, url: str) -> None:
         """Show the Options page in the reader window (the Controls strip is
