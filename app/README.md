@@ -34,15 +34,17 @@ First run takes a minute (setting up `venv`), and the Sidecar's own
 environment is set up on the first launch that needs it; every run after that is
 instant. It starts the Sidecar automatically and opens two windows:
 
-- **Nghe Truyện** -- the Page, in a native Web View. `web/content.js` is
-  injected on every load to pull the Chapter out of the DOM; it draws no UI.
-- **Nghe Truyện -- Controls** -- the NiceGUI chrome: address bar, Player Bar
-  (play/pause, prev/next, speed, voice, auto-next, current-Paragraph toggle).
-  It is frameless and docked flush under the reader window, following its
-  moves and resizes (and hiding with it when minimized) via `docking.py`, and
-  it is a tool window (`window_group.py`), so Windows gives it no taskbar
-  button and no Alt-Tab entry of its own -- the App looks like one window.
-  `check_windows.py` reads those styles back.
+- **Nghe Truyện -- Reader** -- the Page, in a native Web View. `web/content.js`
+  is injected on every load to pull the Chapter out of the DOM; it draws no UI.
+  It is a tool window (`window_group.py`), so Windows gives it no taskbar
+  button and no Alt-Tab entry of its own -- the App looks like one window, and
+  that one window is the Controls strip below, which stays reachable even
+  while Hide page has tucked the reader away. `check_windows.py` reads those
+  styles back.
+- **Nghe Truyện** -- the NiceGUI chrome: address bar, Player Bar (play/pause,
+  prev/next, speed, voice, auto-next, current-Paragraph toggle). It is
+  frameless and docked flush under the reader window, following its moves and
+  resizes via `docking.py`.
   Drag its title bar to move it, the strip along its bottom edge to resize it,
   and use Hide page / Show page to tuck the reader away while you keep
   listening -- which of the two it was survives a restart, and the ⚙ Options
@@ -51,6 +53,11 @@ instant. It starts the Sidecar automatically and opens two windows:
   audio visualizer next to the Player Bar shows the Chapter being read; the
   ‹ › arrows cycle its style (bars, mirrored, wave, blocks), and the chosen
   one is remembered in `config.json`.
+  Play/Pause, Next Track, and Previous Track on the keyboard work too: as
+  ordinary keydown events while either window has focus (`main.py`'s
+  `MEDIA_KEYS_JS`, `ui.py`'s `ui.keyboard`), and system-wide via
+  `RegisterHotKey` (`media_hotkeys.py`, Windows only) even when the App is in
+  the background.
   Holding or spamming next/prev moves several Paragraphs at once -- a burst of
   clicks is applied as a single jump, rather than firing one synthesis request
   per click as it did before.
@@ -131,7 +138,9 @@ join cannot click. See [ADR-0018](../docs/adr/0018-streaming-chunk-playback.md).
 
 What genuinely stays Windows-only: `window_group.py`'s Win32 ex-styles (Linux
 uses the X11 EWMH hints instead, and gets nothing on Wayland),
-`check_windows.py`, `make_icon.py`, and `NgheTruyen.spec`.
+`media_hotkeys.py`'s global media-key hotkeys (Linux still gets them while a
+window has focus, just not system-wide), `check_windows.py`, `make_icon.py`,
+and `NgheTruyen.spec`.
 
 ### Linux
 
@@ -165,10 +174,12 @@ itself is a build-time tool):
 
 ```bat
 cd app
-venv\Scripts\python.exe -m pip install pyinstaller
-venv\Scripts\python.exe -m PyInstaller --noconfirm NgheTruyen.spec
-copy dist\NgheTruyen.exe .
+build.bat
 ```
+
+`build.bat` installs PyInstaller into the venv if it is not there yet, runs the
+build below, and copies the result over the exe in this directory -- close the
+App first if it is running, or the copy fails (the exe is locked while it is).
 
 `NgheTruyen.spec` is the build: `--onefile --windowed`, `web/` and `assets/`
 added as data, and `icon=assets/nghetruyen.ico` for the exe's own resources.
@@ -190,18 +201,23 @@ tag runs `.github/workflows/release.yml`, which tests, builds, and attaches the
 exe to a GitHub Release ([ADR-0014](../docs/adr/0014-release-by-tag.md)). Run
 that workflow by hand to build the exe without publishing a release.
 
-The one thing it does not carry is the **Sidecar**
+The one thing it does not carry is the **Sidecar**'s own dependencies
 ([ADR-0001](../docs/adr/0001-local-sidecar-for-tts.md),
-[ADR-0008](../docs/adr/0008-switch-to-vieneu-tts.md)): it still needs
-`sidecar/` (`server.py` and `requirements.txt`) beside it, looked for beside
-the exe and one level up. `sidecar/venv` is built on first launch if it is
-missing, which needs a Python 3.10+ on PATH -- a frozen exe has no interpreter
-of its own, so a machine with no Python still needs the venv copied over, and
-the status line says so rather than failing quietly.
-[ADR-0012](../docs/adr/0012-standalone-app-exe.md) records what is bundled and
-why the Sidecar is not;
+[ADR-0008](../docs/adr/0008-switch-to-vieneu-tts.md)): `sidecar/venv` (~700 MB
+of `vieneu`, ONNX Runtime, and friends) is built on first launch, which needs a
+Python 3.10+ on PATH -- a frozen exe has no interpreter of its own, so a
+machine with no Python still needs the venv copied over, and the status line
+says so rather than failing quietly. `server.py` and `requirements.txt`
+themselves, though, travel inside the exe: it looks for a real `sidecar/`
+beside itself or one level up first, and only extracts its own bundled copy
+next to itself if neither has one -- so a copy of the exe dropped anywhere on
+its own still has something to build a venv from, rather than failing at
+startup. [ADR-0012](../docs/adr/0012-standalone-app-exe.md) records what is
+bundled and why the Sidecar's dependencies are not;
 [ADR-0016](../docs/adr/0016-app-provisions-the-sidecar-environment.md) records
-how its environment gets built.
+how its environment gets built, and
+[ADR-0019](../docs/adr/0019-bundle-sidecar-launch-files-in-the-exe.md) records
+this part.
 
 ## Icon
 

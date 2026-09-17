@@ -25,6 +25,14 @@ class TestApi(unittest.TestCase):
         self.assertEqual(self.api.chapter_ready(["a"], "T"), {"autoStart": True})
         self.controller.chapter_ready.assert_called_once_with(["a"], "T")
 
+    def test_play_pause_delegates(self):
+        self.api.play_pause()
+        self.controller.play_pause.assert_called_once_with()
+
+    def test_skip_delegates(self):
+        self.api.skip(-1)
+        self.controller.skip.assert_called_once_with(-1)
+
 
 if __name__ == "__main__":
     unittest.main()

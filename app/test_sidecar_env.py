@@ -81,6 +81,34 @@ class TestFindSidecarDir(SidecarEnvTestCase):
         )
 
 
+class TestExtractBundledSidecar(SidecarEnvTestCase):
+    def setUp(self):
+        super().setUp()
+        self.bundle = self.root / "bundle" / "sidecar"
+        self.bundle.mkdir(parents=True)
+        (self.bundle / "server.py").write_text("# bundled server\n", encoding="utf-8")
+        (self.bundle / sidecar_env.REQUIREMENTS_NAME).write_text("vieneu\n", encoding="utf-8")
+        self.empty = self.root / "empty_dest" / "sidecar"
+
+    def test_copies_both_files_when_the_destination_has_neither(self):
+        self.assertTrue(sidecar_env.extract_bundled_sidecar(self.bundle, self.empty))
+        self.assertEqual((self.empty / "server.py").read_text(encoding="utf-8"), "# bundled server\n")
+        self.assertEqual(
+            (self.empty / sidecar_env.REQUIREMENTS_NAME).read_text(encoding="utf-8"), "vieneu\n",
+        )
+
+    def test_an_existing_server_py_is_left_alone(self):
+        # self.sidecar already has server.py and requirements.txt (setUp).
+        (self.sidecar / "server.py").write_text("# already here\n", encoding="utf-8")
+        self.assertTrue(sidecar_env.extract_bundled_sidecar(self.bundle, self.sidecar))
+        self.assertEqual((self.sidecar / "server.py").read_text(encoding="utf-8"), "# already here\n")
+
+    def test_a_bundle_missing_either_file_changes_nothing_and_returns_false(self):
+        (self.bundle / sidecar_env.REQUIREMENTS_NAME).unlink()
+        self.assertFalse(sidecar_env.extract_bundled_sidecar(self.bundle, self.empty))
+        self.assertFalse(self.empty.exists())
+
+
 class TestInterpreterDiscovery(unittest.TestCase):
     def test_running_from_source_prefers_this_interpreter(self):
         # It is certainly present, unlike a Python on PATH.

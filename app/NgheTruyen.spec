@@ -5,7 +5,14 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('web', 'web'), ('assets', 'assets')],
+    datas=[
+        ('web', 'web'),
+        ('assets', 'assets'),
+        # Just the launch script and its requirement list, not vieneu's own
+        # dependencies -- see ADR-0016 and ADR-0019.
+        ('../sidecar/server.py', 'sidecar'),
+        ('../sidecar/requirements.txt', 'sidecar'),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

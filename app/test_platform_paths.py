@@ -16,7 +16,7 @@ import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import platform_paths
 
@@ -149,6 +149,26 @@ class TestInstallHint(unittest.TestCase):
         self.assertIn("python3-venv", hint)  # Debian/Ubuntu
         self.assertIn("pacman", hint)        # Arch
         self.assertIn("dnf", hint)           # Fedora
+
+
+class TestOpenInDefaultApp(unittest.TestCase):
+    def test_windows_uses_startfile(self):
+        # os.startfile only exists on Windows -- create=True lets the patch
+        # stand in for it on the Linux CI job too.
+        with windows(), patch.object(platform_paths.os, "startfile", create=True) as startfile:
+            self.assertTrue(platform_paths.open_in_default_app("C:/logs/sidecar.log"))
+        startfile.assert_called_once_with("C:/logs/sidecar.log")
+
+    def test_linux_uses_xdg_open(self):
+        with linux(), patch("platform_paths.subprocess.Popen") as popen:
+            self.assertTrue(platform_paths.open_in_default_app("/tmp/sidecar.log"))
+        popen.assert_called_once_with(["xdg-open", "/tmp/sidecar.log"])
+
+    def test_a_failure_to_open_is_reported_as_false_not_raised(self):
+        with windows(), patch.object(
+            platform_paths.os, "startfile", side_effect=OSError("no handler"), create=True,
+        ):
+            self.assertFalse(platform_paths.open_in_default_app("C:/logs/sidecar.log"))
 
 
 class TestFrozen(unittest.TestCase):

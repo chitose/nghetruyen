@@ -644,6 +644,15 @@ class TestController(unittest.TestCase):
     def test_retry_sidecar_without_a_starter_never_raises(self):
         self.controller.retry_sidecar()
 
+    def test_open_sidecar_log_runs_the_attached_opener(self):
+        calls = []
+        self.controller.attach_open_sidecar_log(lambda: calls.append("open"))
+        self.controller.open_sidecar_log()
+        self.assertEqual(calls, ["open"])
+
+    def test_open_sidecar_log_without_an_opener_never_raises(self):
+        self.controller.open_sidecar_log()
+
 
 if __name__ == "__main__":
     unittest.main()

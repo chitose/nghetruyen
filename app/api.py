@@ -16,3 +16,9 @@ class Api:
 
     def chapter_ready(self, paragraphs: list, title: str) -> dict:
         return self._controller.chapter_ready(paragraphs, title)
+
+    def play_pause(self) -> None:
+        self._controller.play_pause()
+
+    def skip(self, direction: int) -> None:
+        self._controller.skip(direction)

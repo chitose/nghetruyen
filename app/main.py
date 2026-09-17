@@ -32,17 +32,18 @@ from urllib.parse import urlparse
 
 import webview
 
+import platform_paths
 from api import Api
 from audio_player import AudioPlayer
 from config import Config
 from controller import Controller
 from docking import CONTROLS_HEIGHT, dock
 from icon import app_icon_path
+from media_hotkeys import start as start_media_hotkeys
 from playback import PlaybackEngine
-from platform_paths import data_dir
 from session import Session, restore_bounds, restore_dock_height, restore_hidden
 from sidecar_client import SidecarClient
-from sidecar_env import find_sidecar_dir, venv_python
+from sidecar_env import extract_bundled_sidecar, find_sidecar_dir, venv_python
 from sidecar_manager import SidecarManager, SidecarStartup
 from splash import make_splash
 from ui import UI_HOST, UI_PORT, create_pages, run_ui
@@ -73,13 +74,30 @@ ICON_PATH = app_icon_path(BUNDLE_DIR)
 # session.json live there, and renaming it would strand an existing install's
 # settings. On Linux there is no such install, so this is the XDG location
 # instead -- see platform_paths.data_dir and ADR-0017.
-DATA_DIR = data_dir()
+DATA_DIR = platform_paths.data_dir()
 CONFIG_PATH = DATA_DIR / "config.json"
 SESSION_PATH = DATA_DIR / "session.json"
 LOG_PATH = DATA_DIR / "nghetruyen.log"
 
 READERABLE_JS = (WEB_DIR / "readerable.js").read_text(encoding="utf-8")
 CONTENT_JS = (WEB_DIR / "content.js").read_text(encoding="utf-8")
+
+# Hardware Play/Pause, Next, and Previous Track keys reach the reader window as
+# ordinary keydown events with these `code` values (Chromium translates them
+# from the OS) whenever it has focus -- no native hotkey plumbing needed. Guarded
+# by a flag on `window` because `inject_content_script` runs again on every
+# navigation and would otherwise stack up duplicate listeners.
+MEDIA_KEYS_JS = """
+if (!window.__ngheTruyenMediaKeys) {
+  window.__ngheTruyenMediaKeys = true;
+  window.addEventListener('keydown', function (e) {
+    if (e.repeat) return;
+    if (e.code === 'MediaPlayPause') window.pywebview.api.play_pause();
+    else if (e.code === 'MediaTrackNext') window.pywebview.api.skip(1);
+    else if (e.code === 'MediaTrackPrevious') window.pywebview.api.skip(-1);
+  });
+}
+"""
 
 
 def warn(message: str) -> None:
@@ -102,6 +120,10 @@ CHROME_BASE_URL = f"http://{UI_HOST}:{UI_PORT}/"
 
 
 def inject_content_script(window) -> None:
+    # Media keys work here too, Options included -- cheap, and harmless where
+    # they don't apply.
+    window.evaluate_js(MEDIA_KEYS_JS)
+
     # Options is served by the chrome server and loaded in this same window
     # (see Controller.open_options); there is nothing to extract there, and
     # reporting it would clobber the address bar and the remembered Page.
@@ -178,6 +200,13 @@ if __name__ == "__main__":
     session = Session(SESSION_PATH)
 
     sidecar_dir = find_sidecar_dir(APP_DIR)
+    if _frozen() and not (sidecar_dir / "server.py").is_file():
+        # A copy of the exe with no sidecar/ checked out beside it -- drop the
+        # bundled server.py/requirements.txt next to the exe itself so
+        # ensure_env() has something to build a venv from. See ADR-0019.
+        candidate = APP_DIR / "sidecar"
+        if extract_bundled_sidecar(BUNDLE_DIR / "sidecar", candidate):
+            sidecar_dir = candidate
     sidecar_manager = SidecarManager(
         python_exe=str(venv_python(sidecar_dir)),
         cwd=str(sidecar_dir),
@@ -193,6 +222,9 @@ if __name__ == "__main__":
     )
     controller = Controller(config, playback, sidecar_client)
     controller.attach_visualizer(Visualizer(audio_player))
+    controller.attach_open_sidecar_log(
+        lambda: platform_paths.open_in_default_app(sidecar_manager.log_path)
+    )
 
     # The Sidecar starts off the critical path, and how it goes is reported to
     # the chrome's status line rather than only into sidecar.log -- a Sidecar
@@ -315,6 +347,8 @@ if __name__ == "__main__":
             return
         shutting_down["done"] = True
         playback.stop()  # silence first: shutting the Sidecar down can take seconds
+        if hotkeys is not None:
+            hotkeys.stop()
         save_session()
         splash.close()  # quitting before the reader ever appeared
         for window in (controls_window, content_window):
@@ -328,6 +362,17 @@ if __name__ == "__main__":
     content_window.events.closed += on_closed
     controls_window.events.closed += on_closed
     controller.attach_quit(on_closed)  # the chrome's close button
+
+    # Play/Pause, Next, and Previous Track, system-wide -- the same three keys
+    # MEDIA_KEYS_JS and ui.py's ui.keyboard already handle while a window has
+    # focus. Created before webview.start() so its message loop picks up the
+    # hotkey window too; see media_hotkeys.py.
+    hotkeys = start_media_hotkeys(
+        controller.play_pause,
+        lambda: controller.skip(1),
+        lambda: controller.skip(-1),
+        on_warning=warn,
+    )
 
     # One icon for both windows: pywebview applies it to every window it opens,
     # so the Controls window gets it too. See app/make_icon.py for the mark.

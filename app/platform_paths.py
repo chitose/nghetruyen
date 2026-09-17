@@ -15,6 +15,7 @@ nothing about this App.
 """
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -97,6 +98,21 @@ def python_install_hint() -> str:
         "(Debian/Ubuntu: sudo apt install python3 python3-venv; "
         "Fedora: sudo dnf install python3; Arch: sudo pacman -S python)."
     )
+
+
+def open_in_default_app(path) -> bool:
+    """Opens `path` in whatever the OS hands a `.log` file to -- its own
+    window, same as double-clicking it. Best-effort: False rather than a
+    raised error, since this is a convenience button, not a critical path.
+    """
+    try:
+        if is_windows():
+            os.startfile(str(path))  # noqa: S606 -- a local path this App wrote
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+        return True
+    except OSError:
+        return False
 
 
 def frozen() -> bool:

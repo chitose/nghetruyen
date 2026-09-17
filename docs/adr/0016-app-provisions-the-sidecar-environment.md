@@ -63,8 +63,7 @@ Consequences worth knowing:
 - The exe still needs `sidecar/` (`server.py` and `requirements.txt`) beside it,
   and a Python 3.10+ on PATH to build the venv, because a frozen build has no
   interpreter of its own. Without one, the status line says so and names
-  `sidecar/README.md` instead of failing somewhere inside pip. Carrying
-  `sidecar/` inside the exe is a separate change and is not done here.
+  `sidecar/README.md` instead of failing somewhere inside pip.
 - Deleting `sidecar/venv` is now the supported repair for a broken environment,
   rather than the thing to avoid.
 - A `sidecarUrl` pointing at another machine still provisions a local venv,
@@ -81,3 +80,11 @@ which `run.sh` checks for before it hands off. The venv's interpreter is
 from `platform_paths.venv_python()`. Nothing else here changes: the marker, the
 idempotent pip, the 15-minute first-run wait, and the log file are all
 platform-neutral, and the venv/pip output still goes to `sidecar/sidecar.log`.
+
+**Amended by [ADR-0019](0019-bundle-sidecar-launch-files-in-the-exe.md):** the
+exe no longer strictly needs `sidecar/` beside it -- it now carries
+`server.py`/`requirements.txt` (not VieNeu's own dependencies, which stays
+rejected below) and extracts them next to itself the first time neither file
+is found nearby. A real `sidecar/` beside the exe, or one level up, is still
+used as-is and still the way to share one `sidecar/venv` across several copies
+of the exe.

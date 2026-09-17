@@ -289,6 +289,21 @@ def _chrome(controller) -> None:
     ui.add_body_html(DOCK_DRAG_JS)
     ui.add_body_html(VISUALIZER_JS)
 
+    # Hardware Play/Pause, Next, and Previous Track keys, for whenever the
+    # strip (rather than the reader) has focus. main.py wires the same keys
+    # into the reader window.
+    async def handle_media_key(e) -> None:
+        if not e.action.keydown or e.action.repeat:
+            return
+        if e.key.code == "MediaPlayPause":
+            await _in_thread(controller.play_pause)
+        elif e.key.code == "MediaTrackNext":
+            await _in_thread(controller.skip, 1)
+        elif e.key.code == "MediaTrackPrevious":
+            await _in_thread(controller.skip, -1)
+
+    ui.keyboard(on_key=handle_media_key)
+
     with ui.column().classes("w-full gap-1 p-2"):
         # The strip's own title bar: drag it to move the window, ✕ to quit.
         # A frameless window gets neither from the OS.
@@ -316,6 +331,10 @@ def _chrome(controller) -> None:
                     controller.open_options, f"http://{UI_HOST}:{UI_PORT}/options"
                 ),
             ).props("flat dense")
+            ui.button(
+                "🗒",
+                on_click=lambda: _in_thread(controller.open_sidecar_log),
+            ).props("flat dense").tooltip("Open sidecar.log")
             window_toggle = ui.button(
                 window_toggle_text(controller),
                 on_click=lambda: _in_thread(controller.toggle_window),

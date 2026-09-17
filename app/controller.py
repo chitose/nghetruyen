@@ -49,6 +49,7 @@ class Controller:
         self._dock = None  # docking.Dock, for resizing/moving the Controls strip
         self._quit = None  # main.py's shutdown, for the chrome's close button
         self._sidecar_retry = None  # main.py's SidecarStartup.start, for Retry
+        self._open_sidecar_log = None  # main.py's log opener, for the chrome's log button
         self._visualizer = None  # visualizer.Visualizer, for the chrome's bars
         self._schedule_timer = schedule_timer or _start_timer
         self._skip_lock = threading.Lock()
@@ -155,6 +156,14 @@ class Controller:
     def retry_sidecar(self) -> None:
         if self._sidecar_retry is not None:
             self._sidecar_retry()
+
+    def attach_open_sidecar_log(self, open_fn) -> None:
+        """main.py's opener for sidecar/sidecar.log, for the chrome's log button."""
+        self._open_sidecar_log = open_fn
+
+    def open_sidecar_log(self) -> None:
+        if self._open_sidecar_log is not None:
+            self._open_sidecar_log()
 
     def report_sidecar(self, state: str, message: str = "") -> None:
         """Sidecar startup progress, from main.py's SidecarStartup thread.

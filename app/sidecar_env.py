@@ -11,8 +11,15 @@ Provisioning here is what removes the last manual setup step: the App creates
 `sidecar/venv` and pip-installs `sidecar/requirements.txt` the first time it
 needs it, so a fresh checkout needs no venv/pip dance by hand. See
 docs/adr/0016-app-provisions-the-sidecar-environment.md.
+
+The frozen exe also carries `server.py`/`requirements.txt` (not the Sidecar's
+own heavy dependencies) so a copy of the exe with no sidecar/ beside it can
+still provision one -- `extract_bundled_sidecar` is main.py's way of dropping
+those two files where `ensure_env` above expects to find them. See
+docs/adr/0019-bundle-sidecar-launch-files-in-the-exe.md.
 """
 import hashlib
+import shutil
 import subprocess
 import sys
 import threading
@@ -65,6 +72,29 @@ def find_sidecar_dir(app_dir: Path) -> Path:
         if (candidate / "server.py").is_file():
             return candidate
     return app_dir.parent / "sidecar"
+
+
+def extract_bundled_sidecar(bundled_dir: Path, sidecar_dir: Path) -> bool:
+    """Copy `server.py`/`requirements.txt` from the frozen exe's bundle into
+    `sidecar_dir`, so a copy of the exe dropped somewhere with no sidecar/
+    beside it can still provision one. Only the launch script and its
+    (small) dependency list travel this way -- `vieneu`'s own ~700 MB of
+    packages are never bundled; see ADR-0016 and ADR-0019.
+
+    True when `sidecar_dir` ends up with both files, whether they were
+    already there or just copied; False when the bundle does not have them
+    either (a dev run, where `bundled_dir` is not a real bundle).
+    """
+    if (sidecar_dir / "server.py").is_file():
+        return True
+    bundled_server = bundled_dir / "server.py"
+    bundled_requirements = bundled_dir / REQUIREMENTS_NAME
+    if not bundled_server.is_file() or not bundled_requirements.is_file():
+        return False
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(bundled_server, sidecar_dir / "server.py")
+    shutil.copyfile(bundled_requirements, sidecar_dir / REQUIREMENTS_NAME)
+    return True
 
 
 def venv_python(sidecar_dir: Path) -> Path:
