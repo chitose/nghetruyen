@@ -3,16 +3,17 @@ Alt-Tab entry.
 
     venv\\Scripts\\python.exe check_windows.py
 
-Run it while the App is running. The reader is a normal window; the Controls
-strip should be a *tool window* (see docs/adr/0010-nicegui-chrome.md), which is
-what keeps the strip out of the taskbar and out of Alt-Tab. Window styles cannot
-be asserted on from the test suite -- a test would have to open two real windows
--- so this reads them back the way the shell does: the strip must have
-WS_EX_TOOLWINDOW and must not have WS_EX_APPWINDOW.
+Run it while the App is running. The Controls strip is a normal window; the
+reader should be a *tool window* (see docs/adr/0010-nicegui-chrome.md), which is
+what keeps the reader out of the taskbar and out of Alt-Tab -- the strip is the
+one that stays reachable even when Hide page has tucked the reader away. Window
+styles cannot be asserted on from the test suite -- a test would have to open
+two real windows -- so this reads them back the way the shell does: the reader
+must have WS_EX_TOOLWINDOW and must not have WS_EX_APPWINDOW.
 
 It must also have **no owner**. Ownership looks like the obvious next step (the
-strip would stay above the reader and go away with it), but Windows then disposes
-of the strip without raising the event pywebview deregisters windows by, so the
+reader would stay above the strip and go away with it), but Windows then disposes
+of the reader without raising the event pywebview deregisters windows by, so the
 App closes its windows and stays alive. An owner here is therefore a problem,
 not a pass -- see `window_group.py`.
 
@@ -36,8 +37,8 @@ GWL_STYLE = -16
 GWL_EXSTYLE = -20
 GW_OWNER = 4
 
-READER_TITLE = "Nghe Truyện"
-STRIP_TITLE = "Nghe Truyện -- Controls"
+READER_TITLE = "Nghe Truyện -- Reader"
+STRIP_TITLE = "Nghe Truyện"
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
@@ -134,19 +135,19 @@ def report(found: dict) -> int:
         )
 
     problems = []
-    if strip is None:
-        problems.append("the Controls strip was not found (is the App past startup?)")
+    if reader is None:
+        problems.append("the reader was not found (is the App past startup?)")
     else:
-        if not strip["ex_style"] & WS_EX_TOOLWINDOW:
-            problems.append("the strip is not a tool window: it takes an Alt-Tab entry")
-        if strip["ex_style"] & WS_EX_APPWINDOW:
-            problems.append("the strip still asks for a taskbar button (WS_EX_APPWINDOW)")
-        if strip["owner"]:
+        if not reader["ex_style"] & WS_EX_TOOLWINDOW:
+            problems.append("the reader is not a tool window: it takes an Alt-Tab entry")
+        if reader["ex_style"] & WS_EX_APPWINDOW:
+            problems.append("the reader still asks for a taskbar button (WS_EX_APPWINDOW)")
+        if reader["owner"]:
             # Deliberate: an owned window is disposed by Windows without raising
             # the event pywebview deregisters windows by, which leaves the App
             # alive with no windows. See window_group.py.
             problems.append(
-                "the strip is owned by another window: Windows will dispose it "
+                "the reader is owned by another window: Windows will dispose it "
                 "behind pywebview's back and the App will not exit"
             )
 
@@ -157,7 +158,7 @@ def report(found: dict) -> int:
         return 1
 
     print()
-    print("OK: one taskbar button and one Alt-Tab entry -- the strip is a tool window.")
+    print("OK: one taskbar button and one Alt-Tab entry -- the reader is a tool window.")
     return 0
 
 

@@ -1,21 +1,25 @@
 """Makes the App's two OS windows read as one to the shell.
 
-The reader is a normal window; the Controls strip is a second one docked under
-it (ADR-0010). Two native windows, but only one of them should be a window as
-far as the shell is concerned: the strip is marked as a tool window, which
-takes away its taskbar button and its Alt-Tab entry, so the App shows up once.
+The Controls strip is a normal window; the reader is a second one docked
+above it (ADR-0010). Two native windows, but only one of them should be a
+window as far as the shell is concerned: the reader is marked as a tool
+window, which takes away its taskbar button and its Alt-Tab entry, so the App
+shows up once -- and stays reachable through the strip even when Hide page
+has tucked the reader away (it would otherwise take the App's only taskbar
+entry with it).
 
-Deliberately *not* done: giving the strip the reader as its owner. Ownership
-would also keep it above the reader and destroy it with it, but Windows then
-disposes of an owned window itself -- without raising the event pywebview
-deregisters windows by (`del BrowserView.instances[uid]`), and pywebview's loop
-only ends once that dict is empty (`len(BrowserView.instances) == 0`). The App
-then closed its windows and stayed alive. Closing the strip first from the
-reader's `closing` event fixes the hang, but the exit still took 12-16s, because
-pywebview's property setters wait 15s on a destroyed window's `shown` event
-while the dock is still repositioning it. Three moving parts, kept in step by
-hand, to avoid the reader's bottom edge occasionally covering the strip's top
-one; not worth it. See docs/adr/0010-nicegui-chrome.md.
+Deliberately *not* done: giving either window the other as its owner.
+Ownership would also keep it above its owner and destroy it with it, but
+Windows then disposes of an owned window itself -- without raising the event
+pywebview deregisters windows by (`del BrowserView.instances[uid]`), and
+pywebview's loop only ends once that dict is empty
+(`len(BrowserView.instances) == 0`). The App then closed its windows and
+stayed alive. Closing the owned window first from the owner's `closing` event
+fixes the hang, but the exit still took 12-16s, because pywebview's property
+setters wait 15s on a destroyed window's `shown` event while the dock is
+still repositioning it. Three moving parts, kept in step by hand, to avoid
+one window's edge occasionally covering the other's; not worth it. See
+docs/adr/0010-nicegui-chrome.md.
 
 Two implementations, because the shell is a different shell: Win32 ex-styles
 through ctypes (`user32`) on Windows, and the EWMH `_NET_WM_STATE_SKIP_TASKBAR`
@@ -24,7 +28,7 @@ nor GTK exposes window styles, so both are ctypes for the same reason: pywebview
 has no API for this. Everything here is best-effort -- if it cannot be applied,
 the App starts exactly as it did before with one line in nghetruyen.log. On
 Linux a Wayland session is the ordinary case where it cannot be applied: the
-GTK window is not an X11 window there, so the strip simply gets its own
+GTK window is not an X11 window there, so the reader simply gets its own
 taskbar entry and both windows are listed separately.
 """
 import ctypes
@@ -80,7 +84,7 @@ def _user32():
 
 
 def tool_window_style(ex_style: int) -> int:
-    """The strip's ex-style as a tool window: no taskbar button, no Alt-Tab entry.
+    """A window's ex-style as a tool window: no taskbar button, no Alt-Tab entry.
 
     Clearing WS_EX_APPWINDOW matters as much as setting WS_EX_TOOLWINDOW:
     WinForms asks for the former explicitly, and the shell honours it over the
@@ -223,8 +227,8 @@ def _warn_once(on_warning):
     return warn
 
 
-def as_tool_window(controls_window, on_warning=None, api=None) -> bool:
-    """Mark the Controls strip as a tool window. True when applied.
+def as_tool_window(window, on_warning=None, api=None) -> bool:
+    """Mark `window` as a tool window. True when applied.
 
     Called once the window exists (its `shown` event); a window that is not
     there yet, a pywebview that stops exposing a native handle, a Wayland
@@ -234,17 +238,17 @@ def as_tool_window(controls_window, on_warning=None, api=None) -> bool:
     warn = _warn_once(on_warning)
 
     if platform_paths.is_windows():
-        return _as_tool_window_win32(controls_window, warn, api)
-    return _as_tool_window_x11(controls_window, warn, api)
+        return _as_tool_window_win32(window, warn, api)
+    return _as_tool_window_x11(window, warn, api)
 
 
-def _as_tool_window_win32(controls_window, warn, api=None) -> bool:
+def _as_tool_window_win32(window, warn, api=None) -> bool:
     api = api or Win32()
     try:
-        hwnd = api.hwnd(controls_window)
+        hwnd = api.hwnd(window)
         if not hwnd:
             warn(
-                "Warning: could not get the Controls window's native handle; "
+                "Warning: could not get the window's native handle; "
                 "it will keep its own taskbar button."
             )
             return False
@@ -252,22 +256,22 @@ def _as_tool_window_win32(controls_window, warn, api=None) -> bool:
         api.refresh(hwnd)
         return True
     except Exception as err:  # noqa: BLE001 -- never take the App down with it
-        warn(f"Warning: could not make the Controls window a tool window ({err}).")
+        warn(f"Warning: could not make the window a tool window ({err}).")
         return False
 
 
-def _as_tool_window_x11(controls_window, warn, api=None) -> bool:
+def _as_tool_window_x11(window, warn, api=None) -> bool:
     api = api or X11()
     try:
-        xid = api.xid(controls_window)
+        xid = api.xid(window)
         if not xid:
             warn(
-                "Warning: the Controls window has no X11 window ID (a Wayland "
+                "Warning: the window has no X11 window ID (a Wayland "
                 "session), so it will keep its own taskbar button."
             )
             return False
         api.set_skip_hints(xid)
         return True
     except Exception as err:  # noqa: BLE001 -- never take the App down with it
-        warn(f"Warning: could not make the Controls window a tool window ({err}).")
+        warn(f"Warning: could not make the window a tool window ({err}).")
         return False

@@ -240,7 +240,7 @@ if __name__ == "__main__":
     reader_hidden = restore_hidden(session.get("readerHidden"))
 
     content_window = webview.create_window(
-        "Nghe Truyện",
+        "Nghe Truyện -- Reader",
         url=start_url,
         js_api=Api(controller),
         x=content_x, y=content_y, width=content_width, height=content_height,
@@ -254,7 +254,7 @@ if __name__ == "__main__":
     # docking.dock() keeps it glued under the reader from here on.
     dock_height = restore_dock_height(session.get("dockHeight"), CONTROLS_HEIGHT)
     controls_window = webview.create_window(
-        "Nghe Truyện -- Controls",
+        "Nghe Truyện",
         url=f"http://{UI_HOST}:{UI_PORT}/",
         x=content_x, y=content_y + content_height, width=content_width, height=dock_height,
         frameless=True, easy_drag=False,
@@ -262,18 +262,15 @@ if __name__ == "__main__":
     dock_state = dock(content_window, controls_window, find_screen, height=dock_height)
     controller.attach_dock(dock_state)
 
-    # Windows should show the pair as one window: the strip becomes the reader's
-    # tool window, so it takes no taskbar button and no Alt-Tab entry, stays
-    # above the reader, and goes away with it. Applied once its native window
-    # exists, which is what `shown` marks. See
-    # docs/adr/0010-nicegui-chrome.md.
-    # Windows should show the pair as one window: the strip becomes a tool
-    # window, so it takes no taskbar button and no Alt-Tab entry of its own.
-    # Applied once its native window exists, which is what `shown` marks -- and
-    # deliberately *not* by making it the reader's owned window, which breaks
+    # Windows should show the pair as one window: the reader becomes a tool
+    # window, so it takes no taskbar button and no Alt-Tab entry of its own --
+    # the Controls strip is the one that stays reachable (in the taskbar and
+    # Alt-Tab) even when Hide page has tucked the reader away. Applied once
+    # its native window exists, which is what `shown` marks -- and
+    # deliberately *not* by making it the strip's owned window, which breaks
     # the App's exit (see window_group). See docs/adr/0010-nicegui-chrome.md.
-    controls_window.events.shown += lambda *_args: as_tool_window(
-        controls_window, on_warning=warn
+    content_window.events.shown += lambda *_args: as_tool_window(
+        content_window, on_warning=warn
     )
 
     # Geometry is tracked as it changes, because by shutdown the window may

@@ -1,9 +1,9 @@
-"""Tests for `app/window_group.py`, which makes the Controls strip a tool window
-so the App shows up once in the taskbar and in Alt-Tab.
+"""Tests for `app/window_group.py`, which marks one of the App's two windows a
+tool window so the App shows up once in the taskbar and in Alt-Tab.
 
 The styles themselves only mean anything to the shell, so what is tested is the
 bit arithmetic and the contract `main.py` relies on: it applies the style to the
-strip's handle, it does *not* touch ownership, and every way it can fail ends in
+given handle, it does *not* touch ownership, and every way it can fail ends in
 `False` plus at most one warning instead of an exception on the startup path.
 
 The Windows path is tested by pretending to be on Windows (`is_windows`) rather

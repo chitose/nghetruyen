@@ -23,7 +23,7 @@ class FakeEvent:
 
 class FakeEvents:
     def __init__(self):
-        for name in ("shown", "moved", "resized", "maximized", "minimized", "restored"):
+        for name in ("shown", "moved", "resized", "maximized"):
             setattr(self, name, FakeEvent())
 
 
@@ -33,19 +33,12 @@ class FakeWindow:
         self.events = FakeEvents()
         self.moves = []
         self.sizes = []
-        self.visible = True
 
     def move(self, x, y):
         self.moves.append((x, y))
 
     def resize(self, width, height):
         self.sizes.append((width, height))
-
-    def hide(self):
-        self.visible = False
-
-    def show(self):
-        self.visible = True
 
 
 class TestControlsBounds(unittest.TestCase):
@@ -96,13 +89,6 @@ class TestDock(unittest.TestCase):
         self.content.width, self.content.height = 1920, 1080
         self.content.events.maximized.fire()
         self.assertEqual(self.controls.moves[-1], (0, 1080 - 140))
-
-    def test_hides_with_the_reader_and_returns_on_restore(self):
-        self.content.events.minimized.fire()
-        self.assertFalse(self.controls.visible)
-        self.content.events.restored.fire()
-        self.assertTrue(self.controls.visible)
-        self.assertEqual(self.controls.moves[-1], (10, 620))
 
     def test_reshown_controls_window_resyncs(self):
         self.controls.events.shown.fire()

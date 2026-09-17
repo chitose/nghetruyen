@@ -166,7 +166,7 @@ def create_pages(controller) -> None:
 
     @ui.page("/")
     def chrome() -> None:
-        ui.page_title("Nghe Truyện -- Controls")
+        ui.page_title("Nghe Truyện")
         _chrome(controller)
 
     @ui.page("/options")

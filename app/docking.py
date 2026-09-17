@@ -3,8 +3,11 @@
 The App is two OS windows (ADR-0010); this is what makes them read as one.
 The Controls window is frameless, the same width as the reader, and flush
 against its bottom edge, following every move and resize. When the reader is
-maximized it pins to the bottom of the screen instead of being pushed off it,
-and it hides while the reader is minimized.
+maximized it pins to the bottom of the screen instead of being pushed off it.
+
+Minimizing the reader no longer hides the Controls window: the strip is the
+window with the taskbar entry (window_group.py makes the reader the tool
+window instead), so it has to stay up for the App to still be reachable.
 
 A frameless window has no native resize border, so the strip's height is
 whatever the reader last dragged its grip to (`Dock.set_height`, driven by the
@@ -50,8 +53,6 @@ class Dock:
         content_window.events.moved += self.reposition
         content_window.events.resized += self.reposition
         content_window.events.maximized += self.reposition
-        content_window.events.minimized += self.hide
-        content_window.events.restored += self.show
         controls_window.events.shown += self.reposition
 
     def reposition(self, *_args) -> None:
@@ -103,13 +104,6 @@ class Dock:
 
     def end_move(self) -> None:
         self._move_origin = None
-
-    def hide(self, *_args) -> None:
-        self._controls.hide()
-
-    def show(self, *_args) -> None:
-        self._controls.show()
-        self.reposition()
 
 
 def dock(content_window, controls_window, find_screen, height=CONTROLS_HEIGHT) -> Dock:
