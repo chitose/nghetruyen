@@ -1,4 +1,5 @@
 # app/test_playback.py
+import threading
 import time
 import unittest
 from unittest.mock import MagicMock
@@ -26,6 +27,34 @@ class TestPlaybackEngine(unittest.TestCase):
         # PREFETCH_AHEAD is 6; only 3 chunks exist, all should be requested.
         time.sleep(0.05)  # background executor threads
         self.assertEqual(self.sidecar.synthesize.call_count, 3)
+
+    def test_prefetching_is_true_while_an_upcoming_chunk_is_still_synthesizing(self):
+        release = threading.Event()
+        sidecar = MagicMock()
+        sidecar.synthesize.side_effect = lambda *_args: (release.wait(1), b"WAVDATA")[1]
+        engine = PlaybackEngine(sidecar, MagicMock(), notify=lambda _e: None)
+        engine.load_chapter(CHUNKS, PARAGRAPHS, speaker="Minh Quân", rate=1.0)
+        time.sleep(0.02)  # let the executor threads pick the submitted futures up
+        self.assertTrue(engine.prefetching)
+        release.set()
+        time.sleep(0.05)
+        self.assertFalse(engine.prefetching)
+
+    def test_prefetching_is_false_once_nothing_is_queued(self):
+        time.sleep(0.05)  # setUp's load_chapter, with the default instant synthesize
+        self.assertFalse(self.engine.prefetching)
+
+    def test_the_chunk_about_to_play_does_not_itself_count_as_prefetching(self):
+        # Synthesizing the *current* index is "buffering" (PLAYBACK_STATE),
+        # not prefetching -- only chunks beyond it are lookahead work.
+        release = threading.Event()
+        sidecar = MagicMock()
+        sidecar.synthesize.side_effect = lambda *_args: (release.wait(1), b"WAVDATA")[1]
+        engine = PlaybackEngine(sidecar, MagicMock(), notify=lambda _e: None)
+        engine.load_chapter([CHUNKS[0]], [PARAGRAPHS[0]], speaker="Minh Quân", rate=1.0)
+        time.sleep(0.02)
+        self.assertFalse(engine.prefetching)
+        release.set()
 
     def test_play_current_loads_audio_and_notifies_chunk_index_then_playing(self):
         self.engine.play_current()

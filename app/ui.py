@@ -83,9 +83,17 @@ document.addEventListener('DOMContentLoaded', function () {
 # Draws one visualizer frame onto its canvas; Python pushes a call per frame via
 # ui.run_javascript, since the audio itself never reaches the browser. The
 # style names must match config.VISUALIZER_STYLES.
+#
+# Resizing the Controls window while idle used to leave the canvas stretched:
+# update_visualizer (ui.py) skips redundant redraws once idle, so nothing told
+# the canvas its box had changed size until playback resumed and pushed a
+# fresh frame. A ResizeObserver redraws from the last frame immediately
+# instead, so the strip's own width change is what triggers it, not the next
+# tick of playback.
 VISUALIZER_JS = """
 <script>
 window.__vnViz = function (values, style) {
+  window.__vnVizLast = {values: values, style: style};
   const canvas = document.getElementById('vn-viz');
   if (!canvas) return;
   const dpr = window.devicePixelRatio || 1;
@@ -157,6 +165,17 @@ window.__vnViz = function (values, style) {
     ctx.fillRect(i * slot + gap / 2, height - barHeight, barWidth, barHeight);
   }
 };
+
+document.addEventListener('DOMContentLoaded', function () {
+  if (window.__vnVizResizeObserverInstalled) return;
+  window.__vnVizResizeObserverInstalled = true;
+  const canvas = document.getElementById('vn-viz');
+  if (!canvas) return;
+  new ResizeObserver(function () {
+    const last = window.__vnVizLast || {values: null, style: 'bars'};
+    window.__vnViz(last.values, last.style);
+  }).observe(canvas);
+});
 </script>
 """
 
@@ -196,8 +215,8 @@ def run_ui(
     )
 
 
-async def _in_thread(func, *args) -> None:
-    await asyncio.to_thread(func, *args)
+async def _in_thread(func, *args):
+    return await asyncio.to_thread(func, *args)
 
 
 def _event_values(args, count=1):
@@ -227,7 +246,12 @@ def status_text(controller) -> str:
     it is fixed and the fix is in that message (Retry, or the log it names). A
     playback error outranks the "starting" notice, being the more specific
     thing to have just happened. The position itself only matters once the
-    Sidecar is up, since that is when playback can work at all.
+    Sidecar is up, since that is when playback can work at all -- and it only
+    exists once the Chapter behind it has actually loaded (content.js's own
+    paragraph count arrives first, from page_loaded, well before
+    chapter_ready turns it into a loaded Chapter). Prefetching is background
+    work with nothing to interrupt, so it only ever appends to the position
+    rather than replacing it.
     """
     if controller.sidecar_failed:
         return controller.sidecar_message
@@ -238,8 +262,11 @@ def status_text(controller) -> str:
         # downloading the voice model); "Starting…" is only what to say before
         # it has said anything.
         return controller.sidecar_message or "Starting the Sidecar…"
+    if controller.total_paragraphs and not controller.chapter_loaded:
+        return "Loading chapter…"
     if controller.total_paragraphs:
-        return f"{controller.paragraph_index + 1} / {controller.total_paragraphs}"
+        position = f"{controller.paragraph_index + 1} / {controller.total_paragraphs}"
+        return f"{position} -- prefetching…" if controller.prefetching else position
     return controller.status
 
 
@@ -502,20 +529,34 @@ def _options(controller) -> None:
             "Read short paragraphs together",
             value=bool(settings["joinShortParagraphs"]),
         )
-        short_words = ui.number(
-            "Join paragraphs under this many words",
-            value=int(settings["shortParagraphWords"]),
-            min=1, max=100, step=1,
-        ).classes("w-72")
         ui.label(
             "Web novels often put a line of dialogue on its own paragraph; "
-            "shorter ones are read together with what follows."
+            f"paragraphs under {DEFAULT_SHORT_PARAGRAPH_WORDS} words are read "
+            "together with what follows."
         ).classes("text-xs opacity-60")
-        sidecar_url = ui.input("Sidecar URL", value=settings["sidecarUrl"] or "").classes("w-full")
-        speaker = ui.select(
-            _speaker_options(controller), label="Default speaker",
-            value=settings["speaker"], with_input=True,
-        ).classes("w-full")
+
+        ui.label("Default speaker").classes("text-sm opacity-70")
+        selected_speaker = {"value": settings["speaker"]}
+        speaker_radios = []
+
+        def select_speaker(name: str) -> None:
+            selected_speaker["value"] = name
+            for other_name, radio in speaker_radios:
+                if other_name != name:
+                    radio.value = None
+
+        with ui.column().classes("gap-0 w-full"):
+            for name in _speaker_options(controller):
+                with ui.row().classes("items-center w-full"):
+                    radio = ui.radio(
+                        {name: name}, value=name if name == settings["speaker"] else None,
+                        on_change=lambda e, name=name: e.value and select_speaker(name),
+                    ).props("dense")
+                    speaker_radios.append((name, radio))
+                    ui.button(
+                        "▶", on_click=lambda name=name: _in_thread(controller.preview_speaker, name),
+                    ).props("flat dense round").classes("ml-auto")
+
         rate = ui.number(
             "Default rate", value=float(settings["defaultRate"] or 1.0),
             min=0.5, max=2.0, step=0.1,
@@ -528,14 +569,10 @@ def _options(controller) -> None:
 
         def save_settings() -> None:
             controller.save_settings({
-                "sidecarUrl": sidecar_url.value,
                 "startUrl": start_url.value,
                 "restoreLastPage": bool(restore_last_page.value),
                 "joinShortParagraphs": bool(join_short.value),
-                "shortParagraphWords": max(
-                    1, int(short_words.value or DEFAULT_SHORT_PARAGRAPH_WORDS)
-                ),
-                "speaker": speaker.value,
+                "speaker": selected_speaker["value"],
                 "defaultRate": float(rate.value) if rate.value is not None else 1.0,
                 "backendModel": backend.value,
             })

@@ -1,6 +1,7 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import controller
 from config import (
     DEFAULT_ADAPTERS,
     DEFAULT_SHORT_PARAGRAPH_WORDS,
@@ -169,6 +170,27 @@ class TestController(unittest.TestCase):
         self.assertEqual(self.controller.get_speakers(), {"ok": True, "speakers": ["A", "B"]})
         self.sidecar.speakers.side_effect = RuntimeError("refused")
         self.assertEqual(self.controller.get_speakers(), {"ok": False})
+
+    def test_preview_speaker_synthesizes_and_plays_the_sample(self):
+        self.sidecar.synthesize.return_value = b"wav bytes"
+        with patch("controller.play_once") as play_once:
+            self.assertTrue(self.controller.preview_speaker("Thái Sơn"))
+        self.sidecar.synthesize.assert_called_once_with(
+            controller.SPEAKER_SAMPLE_TEXT, "Thái Sơn",
+        )
+        play_once.assert_called_once_with(b"wav bytes")
+
+    def test_prefetching_delegates_to_the_playback_engine(self):
+        self.playback.prefetching = True
+        self.assertTrue(self.controller.prefetching)
+        self.playback.prefetching = False
+        self.assertFalse(self.controller.prefetching)
+
+    def test_preview_speaker_reports_failure_without_raising(self):
+        self.sidecar.synthesize.side_effect = RuntimeError("refused")
+        with patch("controller.play_once") as play_once:
+            self.assertFalse(self.controller.preview_speaker("Thái Sơn"))
+        play_once.assert_not_called()
 
     # --- Options -------------------------------------------------------------
 

@@ -46,6 +46,18 @@ EDGE_FADE_SECONDS = 0.005
 SKIP_FADE_SECONDS = 0.012
 
 
+def play_once(wav_bytes: bytes) -> None:
+    """A single, blocking playback on a stream of its own -- for previewing a
+    voice sample from Options, which has no Chapter position or on_finished
+    to coordinate with and must not disturb (or be disturbed by) whatever
+    AudioPlayer is already doing for the reader. Call this from a thread of
+    its own; `sd.wait()` blocks until playback finishes.
+    """
+    data, sr = sf.read(io.BytesIO(wav_bytes), dtype="float32")
+    sd.play(data, sr)
+    sd.wait()
+
+
 class _Queued:
     """One chunk waiting for the callback: its samples, where the callback has
     read up to, and which frame the trailing fade starts at.

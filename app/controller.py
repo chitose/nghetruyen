@@ -10,6 +10,7 @@ See docs/adr/0010-nicegui-chrome.md.
 """
 import threading
 
+from audio_player import play_once
 from chunker import build_paragraph_chunks, join_short_paragraphs
 from config import (
     DEFAULT_SHORT_PARAGRAPH_WORDS,
@@ -26,6 +27,9 @@ from sidecar_manager import STARTING as SIDECAR_STARTING
 # holding the buttons skips several Paragraphs instead of firing a synthesis
 # (and a thread) per click.
 SKIP_COALESCE_SECONDS = 0.25
+
+# What Options' per-voice preview button says, in the voice it is previewing.
+SPEAKER_SAMPLE_TEXT = "Xin chào, đây là giọng đọc mẫu."
 
 
 def _start_timer(delay: float, callback) -> "threading.Timer":
@@ -248,6 +252,12 @@ class Controller:
     def auto_next(self) -> bool:
         return bool(self._config.get("autoNext"))
 
+    @property
+    def prefetching(self) -> bool:
+        """Whether the playback engine is synthesizing an upcoming chunk in
+        the background, for the chrome's status line."""
+        return self._playback.prefetching
+
     def get_speakers(self) -> dict:
         """Live voice list from the Sidecar; the chrome falls back to the
         baked-in KNOWN_SPEAKERS when this says ok is False."""
@@ -255,6 +265,19 @@ class Controller:
             return {"ok": True, "speakers": self._sidecar.speakers()}
         except Exception:
             return {"ok": False}
+
+    def preview_speaker(self, speaker: str) -> bool:
+        """Synthesizes SPEAKER_SAMPLE_TEXT in `speaker`'s voice and plays it
+        once. Independent of the reader's own playback -- Options previewing
+        a voice must not interrupt, or be interrupted by, whatever Chapter is
+        already playing -- so this never touches self._playback. Runs on the
+        calling thread; the chrome calls it from one of its own."""
+        try:
+            wav_bytes = self._sidecar.synthesize(SPEAKER_SAMPLE_TEXT, speaker)
+        except Exception:
+            return False
+        play_once(wav_bytes)
+        return True
 
     # --- content.js -> Python ------------------------------------------------
 

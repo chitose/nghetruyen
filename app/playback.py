@@ -40,6 +40,18 @@ class PlaybackEngine:
             self._cache = {}
         self._prefetch()
 
+    @property
+    def prefetching(self) -> bool:
+        """Whether a chunk beyond the one about to play is still being
+        synthesized in the background. Distinct from "buffering"
+        (PLAYBACK_STATE), which is about the current chunk, the one Play is
+        actually waiting on."""
+        with self._lock:
+            return any(
+                i > self._index and not future.done()
+                for i, future in self._cache.items()
+            )
+
     def _prefetch(self) -> None:
         with self._lock:
             end = min(len(self._chunks), self._index + PREFETCH_AHEAD)

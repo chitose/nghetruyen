@@ -19,6 +19,8 @@ def controller(**overrides):
         "error_message": "",
         "total_paragraphs": 0,
         "paragraph_index": 0,
+        "chapter_loaded": True,
+        "prefetching": False,
         "status": "Open a chapter to start reading.",
         "window_visible": True,
     }
@@ -76,6 +78,22 @@ class TestStatusText(unittest.TestCase):
     def test_ready_sidecar_leaves_error_and_status_alone(self):
         text = status_text(controller(status="No readable Chapter found on this Page."))
         self.assertEqual(text, "No readable Chapter found on this Page.")
+
+    def test_a_readable_page_not_yet_loaded_says_so(self):
+        # page_loaded reports content.js's own paragraph count well before
+        # chapter_ready turns it into a loaded Chapter.
+        text = status_text(controller(total_paragraphs=4, chapter_loaded=False))
+        self.assertEqual(text, "Loading chapter…")
+
+    def test_starting_outranks_loading_too(self):
+        text = status_text(controller(
+            total_paragraphs=4, chapter_loaded=False, sidecar_starting=True,
+        ))
+        self.assertEqual(text, "Starting the Sidecar…")
+
+    def test_prefetching_appends_to_the_position_rather_than_replacing_it(self):
+        text = status_text(controller(total_paragraphs=4, paragraph_index=1, prefetching=True))
+        self.assertEqual(text, "2 / 4 -- prefetching…")
 
 
 class TestSidecarIconState(unittest.TestCase):

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import soundfile as sf
 
-from audio_player import EDGE_FADE_SECONDS, AudioPlayer, _Queued
+from audio_player import EDGE_FADE_SECONDS, AudioPlayer, _Queued, play_once
 
 
 def _mono_wav_bytes(seconds=0.1, sr=16000, amplitude=0.25, frequency=440.0, lead_ms=0.0, tail_ms=0.0):
@@ -44,6 +44,21 @@ class _FakeStream:
 
     def abort(self, *args, **kwargs):
         self.aborted = True
+
+
+class TestPlayOnce(unittest.TestCase):
+    """A one-shot playback, independent of AudioPlayer's own queue/stream --
+    used to preview a voice sample from Options."""
+
+    def test_decodes_and_plays_the_wav_then_waits(self):
+        wav_bytes = _flat_wav_bytes(seconds=0.05, sr=16000, amplitude=0.5)
+        with patch("audio_player.sd") as sd:
+            play_once(wav_bytes)
+        sd.play.assert_called_once()
+        played_data, played_sr = sd.play.call_args.args
+        self.assertEqual(played_sr, 16000)
+        np.testing.assert_allclose(played_data, np.full(800, 0.5, dtype="float32"), atol=1e-4)
+        sd.wait.assert_called_once()
 
 
 class AudioPlayerTestCase(unittest.TestCase):
